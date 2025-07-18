@@ -40,16 +40,12 @@ def preprocess_image(image_path):
     if found_square is not None:
         (x, y, w, h) = cv2.boundingRect(found_square)
 
-        mask = np.zeros_like(gray)
-        cv2.drawContours(mask, [found_square], -1, (255), thickness=cv2.FILLED)
-
-        result = cv2.bitwise_and(image, image, mask=mask)
         x_start = max(x - 20, 0)
         y_start = max(y - 20, 0)
         x_end = min(x + w + 20, image.shape[1])
         y_end = min(y + h + 20, image.shape[0])
 
-        cropped_image = result[y_start:y_end, x_start:x_end]
+        cropped_image = image[y_start:y_end, x_start:x_end]
         cv2.imwrite(image_path, cropped_image)
         print(f"Processed image saved to {image_path}")
         return True
