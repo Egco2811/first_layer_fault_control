@@ -37,5 +37,3 @@ def preprocess_image(image_path):
     cv2.imwrite(image_path, cropped_image)
     print(f"Processed image saved to {image_path}")
     return True
-
-preprocess_image("snapshot.jpg")
