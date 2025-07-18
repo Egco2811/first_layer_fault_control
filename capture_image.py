@@ -1,16 +1,17 @@
 import requests
 
 
-def capture_image(snapshot_url, save_path):
+def capture_image(moonraker_url, save_path):
     """
     Captures an image from the Mainsail webcam.
 
     Args:
-        snapshot_url (str): The URL of the webcam snapshot.
+        moonraker_url (str): The URL of the Moonraker server.
         save_path (str): The path to save the captured image.
     """
     try:
-        response = requests.get(snapshot_url)
+        snapshots_url = f"{moonraker_url}/webcam/snapshot"
+        response = requests.get(snapshots_url)
         if response.status_code == 200:
             with open(save_path, 'wb') as f:
                 f.write(response.content)
