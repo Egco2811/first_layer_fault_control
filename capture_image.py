@@ -1,5 +1,6 @@
 import requests
 
+
 def capture_image(snapshot_url, save_path):
     """
     Captures an image from the Mainsail webcam.
@@ -21,4 +22,3 @@ def capture_image(snapshot_url, save_path):
     except requests.exceptions.RequestException as e:
         print(f"Error capturing image: {e}")
         return None
-
