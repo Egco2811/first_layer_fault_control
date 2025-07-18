@@ -1,6 +1,4 @@
 import cv2
-import numpy as np
-
 
 def preprocess_image(image_path):
     """
