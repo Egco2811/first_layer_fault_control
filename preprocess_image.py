@@ -1,4 +1,6 @@
 import cv2
+import numpy as np
+
 
 def preprocess_image(image_path):
     """
@@ -13,9 +15,25 @@ def preprocess_image(image_path):
         print("Error: Could not read the image.")
         return False
 
-    cropped_image = image[205:395, 285:475]
+    cropped_image = image[200:400, 280:480]
     grayed_image = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
     blurred_image = cv2.GaussianBlur(grayed_image, (5, 5), 3)
-    edges = cv2.Canny(image=blurred_image, threshold1=30, threshold2=100)
 
+    cv2.imshow("edges", auto_canny(blurred_image, 0.1))
+    cv2.waitKey(3000)
     return True
+
+def auto_canny(image, sigma = 0.5):
+    """
+    Automatically calculates edges of the calibration shape
+
+    Args:
+        image(str): Name of cv2 image.
+        sigma(float): Sigma parameter for edge detection.
+    """
+    intensities = float(np.median(image))
+
+    lower_bound = int(max(0.0, (1.0 - sigma) * intensities))
+    upper_bound = int(min(255.0, (1.0 + sigma) * intensities))
+    edges = cv2.Canny(image, lower_bound, upper_bound)
+    return edges
