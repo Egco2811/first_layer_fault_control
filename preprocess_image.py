@@ -17,13 +17,24 @@ def preprocess_image(image_path):
 
     cropped_image = image[200:400, 280:480]
     grayed_image = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
-    blurred_image = cv2.GaussianBlur(grayed_image, (5, 5), 3)
-
-    cv2.imshow("edges", auto_canny(blurred_image, 0.1))
-    cv2.waitKey(3000)
+    blurred_image = cv2.GaussianBlur(grayed_image, (5, 5), 1)
+    edges = auto_canny(blurred_image, 0.1)
+    kernel = np.ones((7, 7), np.uint8)
+    closed_edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+    contours, _ = cv2.findContours(closed_edges, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    longest_contour = max(contours, key=cv2.contourArea)
+    perimeter = cv2.arcLength(longest_contour, True)
+    epsilon = 0.04 * perimeter
+    approximate_polygon = cv2.approxPolyDP(longest_contour, epsilon, True)
+    if len(approximate_polygon) == 4:
+        print("Found calibration shape")
+    else:
+        print("Could not find calibration shape")
+        return False
     return True
 
-def auto_canny(image, sigma = 0.5):
+
+def auto_canny(image, sigma=0.5):
     """
     Automatically calculates edges of the calibration shape
 
