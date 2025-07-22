@@ -28,6 +28,26 @@ def preprocess_image(image_path):
     approximate_polygon = cv2.approxPolyDP(longest_contour, epsilon, True)
     if len(approximate_polygon) == 4:
         print("Found calibration shape")
+        offset_corners = approximate_polygon.reshape(4, 2) + np.array([280, 200])
+
+        ordered_corners = order_points(offset_corners.astype("float32"))
+
+        output_size = (256, 256)
+        padding = 20
+
+        dest_side_length = output_size[0] - (padding * 2)
+
+        dst_points = np.array([
+            [padding, padding],
+            [padding + dest_side_length - 1, padding],
+            [padding + dest_side_length - 1, padding + dest_side_length - 1],
+            [padding, padding + dest_side_length - 1]
+        ], dtype="float32")
+
+        transform_matrix = cv2.getPerspectiveTransform(ordered_corners, dst_points)
+
+        final_image = cv2.warpPerspective(image, transform_matrix, output_size)
+        cv2.imwrite("final_warped_image.jpg", final_image)
     else:
         print("Could not find calibration shape")
         return False
@@ -48,3 +68,13 @@ def auto_canny(image, sigma=0.5):
     upper_bound = int(min(255.0, (1.0 + sigma) * intensities))
     edges = cv2.Canny(image, lower_bound, upper_bound)
     return edges
+
+def order_points(pts):
+    rect = np.zeros((4, 2), dtype="float32")
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+    return rect
