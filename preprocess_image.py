@@ -18,7 +18,7 @@ def preprocess_image(image_path):
     cropped_image = image[200:400, 280:480]
     grayed_image = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
     blurred_image = cv2.GaussianBlur(grayed_image, (5, 5), 1)
-    edges = auto_canny(blurred_image, 0.1)
+    edges = auto_canny(blurred_image, 0.3)
     kernel = np.ones((7, 7), np.uint8)
     closed_edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
     contours, _ = cv2.findContours(closed_edges, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
