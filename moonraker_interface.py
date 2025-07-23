@@ -1,6 +1,6 @@
 import requests
 import json
-
+import time
 
 def capture_image(moonraker_url, save_path):
     """
@@ -25,6 +25,38 @@ def capture_image(moonraker_url, save_path):
         print(f"Error capturing image: {e}")
         return None
 
+def check_print_finish(moonraker_url, interval=15):
+    """
+    Polls Moonraker until the printer is no longer in a 'printing' state.
+
+    Args:
+        moonraker_url (str): The URL of the Moonraker server.
+        interval (int): Seconds to wait between status checks.
+    """
+    print("Waiting for the print to complete...")
+    start_time = time.time()
+    api_endpoint = f"{moonraker_url}/printer/objects/query?print_stats"
+    while True:
+        try:
+            response = requests.get(api_endpoint)
+            response.raise_for_status()
+            print_status = response.json()['result']['status']['print_stats']
+            state = print_status['state']
+            print(f"Current printer state: '{state}' (Elapsed: {int(time.time() - start_time)}s)")
+            if state in ["standby", "complete"]:
+                print("Print finished successfully!")
+                return True
+            elif state == "error":
+                print(f"Error during printing: {print_status.get('message', 'No message')}")
+                return False
+            time.sleep(interval)
+        except requests.exceptions.RequestException as e:
+            print(f"Error polling printer status: {e}")
+            print("Retrying in a moment...")
+            time.sleep(interval)
+        except (KeyError, IndexError) as e:
+            print(f"Could not parse printer status from response. Error: {e}")
+            time.sleep(interval)
 
 def send_gcode(moonraker_url, command):
     """
