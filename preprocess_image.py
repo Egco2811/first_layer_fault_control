@@ -47,7 +47,7 @@ def preprocess_image(image_path):
         transform_matrix = cv2.getPerspectiveTransform(ordered_corners, dst_points)
 
         final_image = cv2.warpPerspective(image, transform_matrix, output_size)
-        cv2.imwrite("final_warped_image.jpg", final_image)
+        cv2.imwrite("snapshot.jpg", final_image)
     else:
         print("Could not find calibration shape")
         return False
