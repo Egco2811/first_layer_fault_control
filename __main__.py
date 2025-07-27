@@ -17,12 +17,15 @@ if __name__ == '__main__':
             preprocess_image(image_file)
             classification = input("Classify the image (high/ideal/low): ").strip().lower()
             if classification == "high":
+                os.makedirs("images/high/", exist_ok=True)
                 os.rename(image_file, f"images/high/{high_counter}.jpg")
                 high_counter += 1
             elif classification == "ideal":
+                os.makedirs("images/ideal/", exist_ok=True)
                 os.rename(image_file, f"images/ideal/{ideal_counter}.jpg")
                 ideal_counter += 1
             elif classification == "low":
+                os.makedirs("images/low/", exist_ok=True)
                 os.rename(image_file, f"images/low/{low_counter}.jpg")
                 low_counter += 1
             else:
