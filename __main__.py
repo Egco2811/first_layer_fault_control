@@ -1,6 +1,7 @@
 from preprocess_image import *
 from moonraker_interface import *
 from file_handler import *
+from PIL import Image
 
 if __name__ == '__main__':
     printer_address = "http://192.168.1.8"
@@ -12,9 +13,14 @@ if __name__ == '__main__':
             image_file = "unprocessed.jpg"
             start_print(printer_address, "calibration_shape.gcode")
             check_print_finish(printer_address)
-            send_gcode(printer_address, "G0 X220 Y90 F6000")
+            time.sleep(5)
             capture_image(printer_address, image_file)
-            preprocess_image(image_file)
+            try:
+                preprocess_image(image_file)
+            except Exception as e:
+                break
+            img = Image.open(image_file)
+            img.show()
             classification = input("Classify the image (high/ideal/low): ").strip().lower()
             if classification == "high":
                 os.makedirs("images/high/", exist_ok=True)

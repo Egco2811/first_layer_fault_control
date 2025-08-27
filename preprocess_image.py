@@ -12,9 +12,7 @@ def preprocess_image(image_path):
     """
     image = cv2.imread(image_path)
     if image is None:
-        print("Error: Could not read the image.")
-        return False
-
+        raise "Error: Could not read the image."
     cropped_image = image[200:400, 280:480]
     grayed_image = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
     blurred_image = cv2.GaussianBlur(grayed_image, (5, 5), 1)
@@ -49,8 +47,7 @@ def preprocess_image(image_path):
         final_image = cv2.warpPerspective(image, transform_matrix, output_size)
         cv2.imwrite("snapshot.jpg", final_image)
     else:
-        print("Could not find calibration shape")
-        return False
+        raise "Could not find calibration shape"
     return True
 
 
@@ -78,3 +75,5 @@ def order_points(pts):
     rect[1] = pts[np.argmin(diff)]
     rect[3] = pts[np.argmax(diff)]
     return rect
+
+preprocess_image("unprocessed.jpg")
