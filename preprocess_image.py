@@ -75,5 +75,3 @@ def order_points(pts):
     rect[1] = pts[np.argmin(diff)]
     rect[3] = pts[np.argmax(diff)]
     return rect
-
-preprocess_image("unprocessed.jpg")

@@ -4,38 +4,27 @@ from file_handler import *
 from PIL import Image
 
 if __name__ == '__main__':
+    classification = "ideal"
     printer_address = "http://192.168.1.8"
-    high_counter = count_images("images/high/")
-    ideal_counter = count_images("images/ideal/")
-    low_counter = count_images("images/low/")
+    counter = count_images(f"images/{classification}/")
     while True:
         try:
-            image_file = "unprocessed.jpg"
+            processed_image_file = "snapshot.jpg"
+            unprocessed_image_file = "unprocessed.jpg"
             start_print(printer_address, "calibration_shape.gcode")
             check_print_finish(printer_address)
             time.sleep(5)
-            capture_image(printer_address, image_file)
+            capture_image(printer_address, unprocessed_image_file)
             try:
-                preprocess_image(image_file)
+                preprocess_image(unprocessed_image_file)
             except Exception as e:
+                print(e)
                 break
-            img = Image.open(image_file)
+            img = Image.open(processed_image_file)
             img.show()
-            classification = input("Classify the image (high/ideal/low): ").strip().lower()
-            if classification == "high":
-                os.makedirs("images/high/", exist_ok=True)
-                os.rename(image_file, f"images/high/{high_counter}.jpg")
-                high_counter += 1
-            elif classification == "ideal":
-                os.makedirs("images/ideal/", exist_ok=True)
-                os.rename(image_file, f"images/ideal/{ideal_counter}.jpg")
-                ideal_counter += 1
-            elif classification == "low":
-                os.makedirs("images/low/", exist_ok=True)
-                os.rename(image_file, f"images/low/{low_counter}.jpg")
-                low_counter += 1
-            else:
-                print("Invalid classification. Please enter 'high', 'ideal', or 'low'.")
+            os.makedirs(f"images/{classification}/", exist_ok=True)
+            os.rename(processed_image_file, f"images/{classification}/{counter}.jpg")
+            counter += 1
         except Exception as e:
             print(f"An error occurred: {e}")
             break
