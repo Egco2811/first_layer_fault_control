@@ -46,7 +46,7 @@ def check_print_finish(moonraker_url, interval=15):
             if state in ["standby", "complete"]:
                 print("Print finished successfully!")
                 return True
-            elif state == "error":
+            elif state in ["error", "cancelled"]:
                 print(f"Error during printing: {print_status.get('message', 'No message')}")
                 return False
             time.sleep(interval)

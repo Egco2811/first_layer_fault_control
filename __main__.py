@@ -1,7 +1,10 @@
 from preprocess_image import *
 from moonraker_interface import *
 from file_handler import *
-from PIL import Image
+
+with open('credentials.txt', 'r') as cred_file:
+    token = cred_file.readline().strip()
+    chat_id = cred_file.readline().strip()
 
 if __name__ == '__main__':
     classification = "ideal"
@@ -20,11 +23,15 @@ if __name__ == '__main__':
             except Exception as e:
                 print(e)
                 break
-            img = Image.open(processed_image_file)
-            img.show()
-            os.makedirs(f"images/{classification}/", exist_ok=True)
-            os.rename(processed_image_file, f"images/{classification}/{counter}.jpg")
+            send_telegram_image(token, chat_id, processed_image_file)
+            accepted = input("Do you wish to continue? (y/n) ")
+            if accepted.lower() != 'y':
+                os.makedirs(f"images/{classification}/", exist_ok=True)
+                os.rename(processed_image_file, f"images/{classification}/{counter}.jpg")
+            else:
+                continue
             counter += 1
+            input("Clean the build plate and press enter to continue...")
         except Exception as e:
             print(f"An error occurred: {e}")
             break
