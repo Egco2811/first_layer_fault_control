@@ -20,17 +20,15 @@ if __name__ == '__main__':
             capture_image(printer_address, unprocessed_image_file)
             try:
                 preprocess_image(unprocessed_image_file)
+                send_telegram_image(token, chat_id, processed_image_file)
+                accepted = input("Do you wish to continue? (y/n) ")
+                if accepted.lower() != 'y':
+                    os.makedirs(f"images/{classification}/", exist_ok=True)
+                    os.rename(processed_image_file, f"images/{classification}/{counter}.jpg")
+                    counter += 1
             except Exception as e:
                 print(e)
-                break
-            send_telegram_image(token, chat_id, processed_image_file)
-            accepted = input("Do you wish to continue? (y/n) ")
-            if accepted.lower() != 'y':
-                os.makedirs(f"images/{classification}/", exist_ok=True)
-                os.rename(processed_image_file, f"images/{classification}/{counter}.jpg")
-            else:
-                continue
-            counter += 1
+                send_telegram_image(token, chat_id, unprocessed_image_file, caption="Could not find calibration shape!")
             input("Clean the build plate and press enter to continue...")
         except Exception as e:
             print(f"An error occurred: {e}")
