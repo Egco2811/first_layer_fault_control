@@ -89,7 +89,6 @@ def start_print(moonraker_url, gcode_file):
 
 def cancel_print(moonraker_url):
     """
-    ## NEW FUNCTION ##
     Sends a CANCEL_PRINT command to Moonraker.
     """
     print("Sending CANCEL_PRINT command...")
