@@ -129,6 +129,7 @@ class Controller:
         try:
             classification = self.view.classification_var.get()
             save_path = self.model.save_image(classification)
+            self.model.commit_last_found_corners()
             self.view.show_info("Success", f"Image saved as {save_path}")
             self.view.update_status(f"Saved to '{classification}'. Ready for next cycle.")
         except Exception as e:
@@ -208,6 +209,7 @@ class Controller:
                                            "The processed image has been sent to Telegram for review.\n\nPress OK to accept and save.\nPress Cancel to reject and continue."):
                     classification = self.view.classification_var.get()
                     save_path = self.model.save_image(classification)
+                    self.model.commit_last_found_corners()
                     self.view.update_status(f"[Auto] Image accepted and saved to {save_path}.")
                 else:
                     self.view.update_status("[Auto] Image rejected by user. Discarding.")

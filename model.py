@@ -20,6 +20,7 @@ class Model:
         ]
         self.load_config()
         self.last_successful_corners = None
+        self.last_found_corners = None
         self.load_last_successful_corners()
 
     def _convert_cv2_to_pil(self, cv2_image):
@@ -56,6 +57,13 @@ class Model:
         self.last_successful_corners = corners
         print("Saved new successful crop parameters.")
 
+    def commit_last_found_corners(self):
+        if self.last_found_corners is not None:
+            self.save_last_successful_corners(self.last_found_corners)
+            print("Committed last found corners as new successful parameters.")
+        else:
+            print("Commit requested, but no new corners were found in this session.")
+
     def start_print(self):
         start_print(self.PRINTER_ADDRESS, self.GCODE_FILE)
 
@@ -74,6 +82,7 @@ class Model:
         self.pipeline_cache.clear()
         self.pipeline_cache['Original'] = self.original_image.copy()
         self.processed_image = self.original_image.copy()
+        self.last_found_corners = None
 
         return self._convert_cv2_to_pil(self.original_image)
 
@@ -122,7 +131,7 @@ class Model:
         elif step_name == 'Crop to Shape':
             clean_outline_image = self.pipeline_cache['Closed Edges']
             contour = find_target_contour(clean_outline_image, debug_mode=debug_mode)
-            self.save_last_successful_corners(contour)
+            self.last_found_corners = contour
             original_color_image = self.pipeline_cache['Original']
             processed = crop_from_contour(original_color_image, contour)
         else:
