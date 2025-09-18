@@ -1,11 +1,13 @@
 import os
 import cv2
 import numpy as np
+import json
 from PIL import Image
 from moonraker_interface import start_print, poll_print_status, capture_image, cancel_print
 from preprocess_image import find_target_contour, crop_from_contour, auto_canny
 from file_handler import send_telegram_image
 
+LAST_SUCCESSFUL_PARAMS_FILE = "last_successful_params.json"
 
 class Model:
     def __init__(self):
@@ -17,6 +19,8 @@ class Model:
             "Find Outer Edges", "Closed Edges", "Crop to Shape"
         ]
         self.load_config()
+        self.last_successful_corners = None
+        self.load_last_successful_corners()
 
     def _convert_cv2_to_pil(self, cv2_image):
         if cv2_image is None:
@@ -33,6 +37,24 @@ class Model:
             self.GCODE_FILE = config.readline().strip()
             self.TOKEN = config.readline().strip()
             self.CHAT_ID = config.readline().strip()
+
+    def load_last_successful_corners(self):
+        if os.path.exists(LAST_SUCCESSFUL_PARAMS_FILE):
+            with open(LAST_SUCCESSFUL_PARAMS_FILE, 'r') as f:
+                try:
+                    data = json.load(f)
+                    self.last_successful_corners = np.array(data['corners'], dtype=np.int32)
+                    print("Loaded last successful crop parameters.")
+                except (json.JSONDecodeError, KeyError):
+                    print("Could not load last successful crop parameters from file.")
+                    self.last_successful_corners = None
+
+    def save_last_successful_corners(self, corners):
+        data = {'corners': corners.tolist()}
+        with open(LAST_SUCCESSFUL_PARAMS_FILE, 'w') as f:
+            json.dump(data, f)
+        self.last_successful_corners = corners
+        print("Saved new successful crop parameters.")
 
     def start_print(self):
         start_print(self.PRINTER_ADDRESS, self.GCODE_FILE)
@@ -100,6 +122,7 @@ class Model:
         elif step_name == 'Crop to Shape':
             clean_outline_image = self.pipeline_cache['Closed Edges']
             contour = find_target_contour(clean_outline_image, debug_mode=debug_mode)
+            self.save_last_successful_corners(contour)
             original_color_image = self.pipeline_cache['Original']
             processed = crop_from_contour(original_color_image, contour)
         else:
@@ -139,11 +162,36 @@ class Model:
                 print(f"Attempting pipeline with sigma={sigma:.2f}")
                 final_image = self.run_full_pipeline(sigma, debug_mode)
                 print(f"Pipeline succeeded with sigma={sigma:.2f}")
-                return final_image, sigma
+                return final_image, sigma, False
             except RuntimeError as e:
                 print(f"Pipeline failed for sigma={sigma:.2f}: {e}")
 
-        raise RuntimeError("Failed to process image after trying multiple sigma values.")
+        print("All sigma retries failed. Attempting to use last successful crop parameters.")
+        if self.last_successful_corners is not None:
+            try:
+                self._ensure_step_in_cache('Closed Edges', user_sigma, debug_mode)
+                original_image = self.pipeline_cache['Original']
+                cropped_image = crop_from_contour(original_image, self.last_successful_corners)
+                self.processed_image = cropped_image
+                print("Successfully cropped image using fallback parameters.")
+                return self._convert_cv2_to_pil(cropped_image), user_sigma, True
+            except Exception as e:
+                 print(f"Fallback cropping failed: {e}")
+                 raise RuntimeError("Failed to process image after trying multiple sigma values and the fallback also failed.")
+        else:
+            raise RuntimeError("Failed to process image after trying multiple sigma values and no fallback is available.")
+
+
+    def crop_with_fallback(self):
+        if self.last_successful_corners is not None:
+            if 'Original' not in self.pipeline_cache:
+                raise RuntimeError("Original image is not in cache for fallback cropping.")
+            original_image = self.pipeline_cache['Original']
+            cropped_image = crop_from_contour(original_image, self.last_successful_corners)
+            self.processed_image = cropped_image
+            return self._convert_cv2_to_pil(cropped_image)
+        else:
+            raise RuntimeError("No fallback parameters available.")
 
     def save_temp_image(self, path):
         if self.processed_image is None:

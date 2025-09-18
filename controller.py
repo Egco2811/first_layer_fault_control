@@ -76,8 +76,20 @@ class Controller:
             else:
                 self.view.update_status(f"Applied '{step_name}' filter.")
         except Exception as e:
-            self.view.show_error("Processing Error", f"Failed at step '{step_name}':\n\n{e}")
-            self.view.update_status(f"Error at step '{step_name}'")
+            if step_name == 'Crop to Shape' and isinstance(e, RuntimeError):
+                self.view.update_status("Shape detection failed. Trying fallback...")
+                try:
+                    fallback_image = self.model.crop_with_fallback()
+                    self.view.update_image_display(fallback_image)
+                    self.view.update_status("Used last successful crop parameters. Ready to save.")
+                    self.view.set_ui_state('PROCESSED')
+                    self.view.show_info("Processing Notice", "Could not detect a new shape. The last successful crop parameters have been applied.")
+                except Exception as fallback_e:
+                    self.view.show_error("Processing Error", f"Failed at step '{step_name}':\n\n{e}\n\nFallback also failed:\n\n{fallback_e}")
+                    self.view.update_status(f"Error at step '{step_name}'")
+            else:
+                self.view.show_error("Processing Error", f"Failed at step '{step_name}':\n\n{e}")
+                self.view.update_status(f"Error at step '{step_name}'")
 
     def process_to_final(self):
         self._run_task(self._process_to_final_task)
@@ -88,10 +100,15 @@ class Controller:
         try:
             user_sigma = self.view.canny_sigma_var.get()
             debug_mode = self.view.debug_mode_var.get()
-            final_image, successful_sigma = self.model.run_full_pipeline_with_retry(user_sigma, debug_mode)
+            final_image, successful_sigma, used_fallback = self.model.run_full_pipeline_with_retry(user_sigma, debug_mode)
 
             self.view.update_image_display(final_image)
-            self.view.update_status(f"Pipeline succeeded with sigma={successful_sigma:.2f}. Ready to save.")
+            status_message = f"Pipeline succeeded with sigma={successful_sigma:.2f}. Ready to save."
+            if used_fallback:
+                status_message = "Shape detection failed. Used last successful parameters. Ready to save."
+                self.view.show_info("Processing Notice", "Could not detect a new shape. The last successful crop parameters have been applied.")
+
+            self.view.update_status(status_message)
             self.view.set_ui_state('PROCESSED')
 
         except RuntimeError as e:
@@ -165,8 +182,12 @@ class Controller:
                 try:
                     user_sigma = self.view.canny_sigma_var.get()
                     debug_mode = self.view.debug_mode_var.get()
-                    final_pil_image, successful_sigma = self.model.run_full_pipeline_with_retry(user_sigma, debug_mode)
-                    self.view.update_status(f"[Auto] Image processed successfully with sigma={successful_sigma:.2f}.")
+                    final_pil_image, successful_sigma, used_fallback = self.model.run_full_pipeline_with_retry(user_sigma, debug_mode)
+                    status_message = f"[Auto] Image processed successfully with sigma={successful_sigma:.2f}."
+                    if used_fallback:
+                        status_message = "[Auto] Shape detection failed. Used last successful parameters."
+                    self.view.update_status(status_message)
+
                 except RuntimeError as e:
                     error_msg = f"[Auto] {e}. Stopping autonomous mode."
                     self.view.update_status(error_msg)
