@@ -11,6 +11,10 @@ class Model:
     def __init__(self):
         self.original_image = None
         self.processed_image = None
+        self.PIPELINE_STEPS = [
+            "Original", "Grayscale", "Blurred",
+            "Find Outer Edges", "Closed Edges", "Crop to Shape"
+        ]
         self.load_config()
 
     def _convert_cv2_to_pil(self, cv2_image):
@@ -46,64 +50,83 @@ class Model:
         self.processed_image = self.original_image.copy()
         return self._convert_cv2_to_pil(self.original_image)
 
-    def process_image_step(self, step_name, sigma, debug_mode=False):
-        if self.original_image is None and step_name != 'Original':
-            raise ValueError("An image must be captured first.")
-        if self.processed_image is None and step_name != 'Original':
-            self.processed_image = self.original_image.copy()
-
-        current_image = self.processed_image
-
+    def _execute_step(self, step_name, input_image, sigma, debug_mode):
         if step_name == 'Original':
-            self.processed_image = self.original_image.copy()
-        elif step_name == 'Grayscale':
-            if len(current_image.shape) == 3:
-                self.processed_image = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
-        elif step_name == 'Blurred':
-            gray_input = current_image
-            if len(current_image.shape) == 3:
-                gray_input = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
-            self.processed_image = cv2.GaussianBlur(gray_input, (7, 7), 0)
-        elif step_name == 'Find Outer Edges':
-            gray_input = current_image
-            if len(current_image.shape) == 3:
-                gray_input = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
-            edges = auto_canny(gray_input, sigma)
-            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            output_image = np.zeros_like(edges)
-            cv2.drawContours(output_image, contours, -1, 255, 1)
-            self.processed_image = output_image
-        elif step_name == 'Closed Edges':
-            gray_input = current_image
-            if len(current_image.shape) == 3:
-                raise TypeError("Input for 'Closed Edges' must be a binary edge image, not a color image.")
-            kernel = np.ones((9, 9), np.uint8)
-            self.processed_image = cv2.morphologyEx(gray_input, cv2.MORPH_CLOSE, kernel)
-        elif step_name == 'Crop to Shape':
-            contour = find_target_contour(current_image, debug_mode=debug_mode)
-            self.processed_image = crop_from_contour(self.original_image, contour)
-        else:
-            raise ValueError(f"Unknown processing step: {step_name}")
+            return self.original_image.copy()
 
+        elif step_name == 'Grayscale':
+            if len(input_image.shape) == 3:
+                return cv2.cvtColor(input_image, cv2.COLOR_BGR2GRAY)
+            return input_image
+
+        elif step_name == 'Blurred':
+            return cv2.GaussianBlur(input_image, (7, 7), 0)
+
+        elif step_name == 'Find Outer Edges':
+            edges = auto_canny(input_image, sigma)
+            contours_img = np.zeros_like(edges)
+            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(contours_img, contours, -1, 255, 1)
+            return contours_img
+
+        elif step_name == 'Closed Edges':
+            kernel = np.ones((9, 9), np.uint8)
+            return cv2.morphologyEx(input_image, cv2.MORPH_CLOSE, kernel)
+
+        elif step_name == 'Crop to Shape':
+            contour = find_target_contour(input_image, debug_mode=debug_mode)
+            return crop_from_contour(self.original_image, contour)
+
+        raise ValueError(f"Unknown processing step: {step_name}")
+
+    def process_image_step(self, target_step_name, sigma, debug_mode=False):
+        if self.original_image is None:
+            raise ValueError("An image must be captured first.")
+
+        temp_image = self.original_image.copy()
+
+        try:
+            target_index = self.PIPELINE_STEPS.index(target_step_name)
+        except ValueError:
+            raise ValueError(f"Unknown processing step: {target_step_name}")
+
+        for i in range(1, target_index + 1):
+            step = self.PIPELINE_STEPS[i]
+            temp_image = self._execute_step(step, temp_image, sigma, debug_mode)
+
+        self.processed_image = temp_image
         return self._convert_cv2_to_pil(self.processed_image)
 
     def run_full_pipeline(self, sigma, debug_mode=False):
         if self.original_image is None:
             raise ValueError("Cannot run pipeline, an image must be captured first.")
 
-        gray = cv2.cvtColor(self.original_image, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (7, 7), 0)
-        edges = auto_canny(blurred, sigma)
-        contours_img = np.zeros_like(edges)
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        cv2.drawContours(contours_img, contours, -1, 255, 1)
-        kernel = np.ones((9, 9), np.uint8)
-        closed = cv2.morphologyEx(contours_img, cv2.MORPH_CLOSE, kernel)
-        target_contour = find_target_contour(closed, debug_mode=debug_mode)
-        final_image = crop_from_contour(self.original_image, target_contour)
-        self.processed_image = final_image
+        temp_image = self.original_image.copy()
+        for step in self.PIPELINE_STEPS[1:]:
+            temp_image = self._execute_step(step, temp_image, sigma, debug_mode)
 
+        self.processed_image = temp_image
         return self._convert_cv2_to_pil(self.processed_image)
+
+    def run_full_pipeline_with_retry(self, user_sigma, debug_mode=False):
+        fallback_sigmas = [0.2, 0.3, 0.4, 0.5, 0.6]
+        try:
+            fallback_sigmas.remove(user_sigma)
+        except ValueError:
+            pass
+
+        sigma_values_to_try = [user_sigma] + fallback_sigmas
+
+        for sigma in sigma_values_to_try:
+            try:
+                print(f"Attempting pipeline with sigma={sigma:.2f}")
+                final_image = self.run_full_pipeline(sigma, debug_mode)
+                print(f"Pipeline succeeded with sigma={sigma:.2f}")
+                return final_image, sigma
+            except RuntimeError as e:
+                print(f"Pipeline failed for sigma={sigma:.2f}: {e}")
+
+        raise RuntimeError("Failed to process image after trying multiple sigma values.")
 
     def save_temp_image(self, path):
         if self.processed_image is None:

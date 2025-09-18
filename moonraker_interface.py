@@ -2,6 +2,7 @@ import requests
 import json
 import time
 
+
 def capture_image(moonraker_url, save_path):
     """
     Captures an image from the Mainsail webcam.
@@ -21,10 +22,11 @@ def capture_image(moonraker_url, save_path):
         print(f"Error capturing image: {e}")
         return None
 
+
+def poll_print_status(moonraker_url, interval=5):
     """
     Polls Moonraker until the printer is no longer in a 'printing' state.
     """
-def poll_print_status(moonraker_url, interval=5):
     print("Polling for print status...")
     api_endpoint = f"{moonraker_url}/printer/objects/query?print_stats"
     while True:
@@ -33,7 +35,13 @@ def poll_print_status(moonraker_url, interval=5):
             response.raise_for_status()
             print_stats = response.json()['result']['status']['print_stats']
             state = print_stats['state']
-            progress = print_stats.get('progress', 0) * 100
+
+            progress = 0
+            if state == "complete":
+                progress = 100.0
+            elif 'progress' in print_stats:
+                progress = print_stats.get('progress', 0) * 100
+
             message = f"Print state: '{state}'. Progress: {progress:.1f}%"
             print(message)
             yield state, message
@@ -56,6 +64,7 @@ def poll_print_status(moonraker_url, interval=5):
             yield "error", error_message
             time.sleep(interval)
 
+
 def send_gcode(moonraker_url, command):
     """
     Sends a gcode command to the Moonraker url provided.
@@ -75,6 +84,7 @@ def send_gcode(moonraker_url, command):
     except requests.exceptions.RequestException as e:
         print(f"An error occurred with the HTTP request: {e}")
         return False
+
 
 def start_print(moonraker_url, gcode_file):
     """

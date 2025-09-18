@@ -86,14 +86,21 @@ class Controller:
         self.view.set_ui_state('BUSY')
         self.view.update_status("Running full pipeline...")
         try:
-            sigma = self.view.canny_sigma_var.get()
+            user_sigma = self.view.canny_sigma_var.get()
             debug_mode = self.view.debug_mode_var.get()
-            final_image = self.model.run_full_pipeline(sigma, debug_mode)
+            final_image, successful_sigma = self.model.run_full_pipeline_with_retry(user_sigma, debug_mode)
+
             self.view.update_image_display(final_image)
-            self.view.update_status("Full pipeline complete. Ready to save.")
+            self.view.update_status(f"Pipeline succeeded with sigma={successful_sigma:.2f}. Ready to save.")
             self.view.set_ui_state('PROCESSED')
+
+        except RuntimeError as e:
+            self.view.show_error("Processing Error", str(e))
+            self.view.update_status("Error in pipeline: Could not find a suitable shape.")
+            self.view.set_ui_state('CAPTURED')
+
         except Exception as e:
-            self.view.show_error("Processing Error", f"Failed during full pipeline:\n\n{e}")
+            self.view.show_error("Processing Error", f"An unexpected error occurred:\n\n{e}")
             self.view.update_status(f"Error in pipeline: {e}")
             self.view.set_ui_state('CAPTURED')
 
@@ -149,11 +156,24 @@ class Controller:
                     break
                 time.sleep(5)
 
-                self.view.update_status("[Auto] Capturing and processing image...")
+                self.view.update_status("[Auto] Capturing image...")
                 self.model.capture_and_load_image(UNPROCESSED_IMAGE_FILE)
-                sigma = self.view.canny_sigma_var.get()
-                debug_mode = self.view.debug_mode_var.get()
-                final_pil_image = self.model.run_full_pipeline(sigma, debug_mode)
+
+                self.view.update_status("[Auto] Processing with retry logic...")
+                final_pil_image = None
+                try:
+                    user_sigma = self.view.canny_sigma_var.get()
+                    debug_mode = self.view.debug_mode_var.get()
+                    final_pil_image, successful_sigma = self.model.run_full_pipeline_with_retry(user_sigma, debug_mode)
+                    self.view.update_status(f"[Auto] Image processed successfully with sigma={successful_sigma:.2f}.")
+                except RuntimeError as e:
+                    error_msg = f"[Auto] {e}. Stopping autonomous mode."
+                    self.view.update_status(error_msg)
+                    self.view.show_error("Autonomous Error", error_msg)
+                    self.autonomous_running = False
+
+                if not self.autonomous_running: break
+
                 self.view.update_image_display(final_pil_image)
                 if not self.autonomous_running: break
 
@@ -164,7 +184,7 @@ class Controller:
 
                 if self.view.ask_ok_cancel("Accept Image?",
                                            "The processed image has been sent to Telegram for review.\n\nPress OK to accept and save.\nPress Cancel to reject and continue."):
-                    classification = self.view.classification_dropdown.get()
+                    classification = self.view.classification_var.get()
                     save_path = self.model.save_image(classification)
                     self.view.update_status(f"[Auto] Image accepted and saved to {save_path}.")
                 else:

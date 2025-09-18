@@ -121,16 +121,16 @@ class View(tk.Tk):
                     widget.config(state=tk.DISABLED)
 
         if state == 'IDLE':
-            configure_widgets(enabled=['print', 'capture', 'auto'], disabled=['save', 'classify', 'views'])
+            configure_widgets(enabled=['print', 'capture', 'auto', 'classify'], disabled=['save', 'views'])
             self.start_auto_button.config(text="Start Autonomous Mode")
         elif state == 'CAPTURED':
-            configure_widgets(enabled=['print', 'capture', 'auto', 'views'], disabled=['save', 'classify'])
+            configure_widgets(enabled=['print', 'capture', 'auto', 'views', 'classify'], disabled=['save'])
         elif state == 'PROCESSED':
             configure_widgets(enabled=['print', 'capture', 'auto', 'views', 'save', 'classify'], disabled=[])
         elif state == 'BUSY':
             configure_widgets(enabled=[], disabled=['print', 'capture', 'auto', 'views', 'save', 'classify'])
         elif state == 'AUTONOMOUS':
-            configure_widgets(enabled=['auto'], disabled=['print', 'capture', 'views', 'save', 'classify'])
+            configure_widgets(enabled=['auto', 'classify'], disabled=['print', 'capture', 'views', 'save'])
             self.start_auto_button.config(text="Stop Autonomous Mode")
 
     @staticmethod
