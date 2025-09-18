@@ -2,8 +2,6 @@ import requests
 import json
 import time
 
-# (capture_image, check_print_finish, and send_gcode functions remain unchanged)
-
 def capture_image(moonraker_url, save_path):
     """
     Captures an image from the Mainsail webcam.
