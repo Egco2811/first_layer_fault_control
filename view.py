@@ -144,3 +144,7 @@ class View(tk.Tk):
     @staticmethod
     def ask_ok_cancel(title, message):
         return messagebox.askokcancel(title, message)
+
+    @staticmethod
+    def ask_accept_fallback_reject(title, message):
+        return messagebox.askyesnocancel(title, message, icon=messagebox.QUESTION)

@@ -205,14 +205,32 @@ class Controller:
                 self.model.send_telegram_notification(TEMP_IMAGE_FILE,
                                                       caption="[Auto] Please review and accept/reject.")
 
-                if self.view.ask_ok_cancel("Accept Image?",
-                                           "The processed image has been sent to Telegram for review.\n\nPress OK to accept and save.\nPress Cancel to reject and continue."):
+                acceptance = self.view.ask_accept_fallback_reject("Review Image",
+                                                                  "The processed image has been sent for review.\n\n"
+                                                                  "YES: Accept and save this image.\n"
+                                                                  "NO: Reject this and save using the last good coordinates (fallback).\n"
+                                                                  "CANCEL: Reject this image and discard.")
+
+                if acceptance is True:
                     classification = self.view.classification_var.get()
                     save_path = self.model.save_image(classification)
                     self.model.commit_last_found_corners()
                     self.view.update_status(f"[Auto] Image accepted and saved to {save_path}.")
-                else:
+                elif acceptance is False:
+                    self.view.update_status("[Auto] User rejected current image. Applying fallback...")
+                    try:
+                        fallback_pil_image = self.model.crop_with_fallback()
+                        self.view.update_image_display(fallback_pil_image)
+                        classification = self.view.classification_var.get()
+                        save_path = self.model.save_image(classification)
+                        self.view.update_status(f"[Auto] Fallback image saved to {save_path}.")
+                    except Exception as e:
+                        error_msg = f"[Auto] Fallback processing failed: {e}. Discarding image."
+                        self.view.show_error("Autonomous Error", error_msg)
+                        self.view.update_status(error_msg)
+                else: # acceptance is None
                     self.view.update_status("[Auto] Image rejected by user. Discarding.")
+
 
                 if os.path.exists(TEMP_IMAGE_FILE):
                     os.remove(TEMP_IMAGE_FILE)
