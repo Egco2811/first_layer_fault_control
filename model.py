@@ -2,7 +2,7 @@ import os
 import cv2
 import numpy as np
 from PIL import Image
-from moonraker_interface import start_print, check_print_finish, capture_image, cancel_print
+from moonraker_interface import start_print, poll_print_status, capture_image, cancel_print
 from preprocess_image import find_target_contour, crop_from_contour, auto_canny
 from file_handler import send_telegram_image
 
@@ -32,8 +32,8 @@ class Model:
     def start_print(self):
         start_print(self.PRINTER_ADDRESS, self.GCODE_FILE)
 
-    def is_print_finished(self):
-        return check_print_finish(self.PRINTER_ADDRESS)
+    def poll_print_progress(self):
+        return poll_print_status(self.PRINTER_ADDRESS)
 
     def cancel_print(self):
         cancel_print(self.PRINTER_ADDRESS)
@@ -56,17 +56,14 @@ class Model:
 
         if step_name == 'Original':
             self.processed_image = self.original_image.copy()
-
         elif step_name == 'Grayscale':
             if len(current_image.shape) == 3:
                 self.processed_image = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
-
         elif step_name == 'Blurred':
             gray_input = current_image
             if len(current_image.shape) == 3:
                 gray_input = cv2.cvtColor(current_image, cv2.COLOR_BGR2GRAY)
             self.processed_image = cv2.GaussianBlur(gray_input, (7, 7), 0)
-
         elif step_name == 'Find Outer Edges':
             gray_input = current_image
             if len(current_image.shape) == 3:
@@ -76,18 +73,15 @@ class Model:
             output_image = np.zeros_like(edges)
             cv2.drawContours(output_image, contours, -1, 255, 1)
             self.processed_image = output_image
-
         elif step_name == 'Closed Edges':
             gray_input = current_image
             if len(current_image.shape) == 3:
                 raise TypeError("Input for 'Closed Edges' must be a binary edge image, not a color image.")
             kernel = np.ones((9, 9), np.uint8)
             self.processed_image = cv2.morphologyEx(gray_input, cv2.MORPH_CLOSE, kernel)
-
         elif step_name == 'Crop to Shape':
             contour = find_target_contour(current_image, debug_mode=debug_mode)
             self.processed_image = crop_from_contour(self.original_image, contour)
-
         else:
             raise ValueError(f"Unknown processing step: {step_name}")
 
@@ -110,6 +104,11 @@ class Model:
         self.processed_image = final_image
 
         return self._convert_cv2_to_pil(self.processed_image)
+
+    def save_temp_image(self, path):
+        if self.processed_image is None:
+            raise ValueError("There is no processed image to save.")
+        cv2.imwrite(path, self.processed_image)
 
     def save_image(self, classification):
         if self.processed_image is None:

@@ -1,8 +1,10 @@
 import threading
 import time
+import os
+import cv2
 
 UNPROCESSED_IMAGE_FILE = "unprocessed.jpg"
-DEFAULT_AUTONOMOUS_CLASSIFICATION = "ideal"
+TEMP_IMAGE_FILE = "temp_autonomous_capture.jpg"
 
 
 class Controller:
@@ -22,8 +24,16 @@ class Controller:
         self.view.update_status("Starting print...")
         try:
             self.model.start_print()
-            self.view.update_status("Print in progress...")
-            if self.model.is_print_finished():
+            print_succeeded = False
+            for state, message in self.model.poll_print_progress():
+                self.view.update_status(message)
+                if state == "complete":
+                    print_succeeded = True
+                    break
+                elif state in ["error", "cancelled"]:
+                    break
+
+            if print_succeeded:
                 self.view.update_status("Print finished.")
             else:
                 self.view.update_status("Print failed or was cancelled.")
@@ -119,10 +129,24 @@ class Controller:
             try:
                 self.view.update_status("[Auto] Starting print...")
                 self.model.start_print()
-                if not self.model.is_print_finished():
-                    self.view.update_status("[Auto] Print failed or was cancelled. Stopping.")
+                print_succeeded = False
+                for state, message in self.model.poll_print_progress():
+                    if not self.autonomous_running:
+                        break
+                    self.view.update_status(f"[Auto] {message}")
+                    if state == "complete":
+                        print_succeeded = True
+                        break
+                    elif state in ["error", "cancelled"]:
+                        self.view.update_status(f"[Auto] Print failed or was cancelled. State: {state}")
+                        break
+
+                if not self.autonomous_running or not print_succeeded:
+                    if print_succeeded:
+                        self.view.update_status("[Auto] Operation cancelled by user.")
+                    else:
+                        self.view.update_status("[Auto] Print did not complete. Stopping.")
                     break
-                if not self.autonomous_running: break
                 time.sleep(5)
 
                 self.view.update_status("[Auto] Capturing and processing image...")
@@ -133,14 +157,29 @@ class Controller:
                 self.view.update_image_display(final_pil_image)
                 if not self.autonomous_running: break
 
-                self.view.update_status("[Auto] Saving image...")
-                save_path = self.model.save_image(DEFAULT_AUTONOMOUS_CLASSIFICATION)
-                self.model.send_telegram_notification(save_path, caption="[Auto] Print cycle finished!")
+                self.view.update_status("[Auto] Awaiting user acceptance...")
+                self.model.save_temp_image(TEMP_IMAGE_FILE)
+                self.model.send_telegram_notification(TEMP_IMAGE_FILE,
+                                                      caption="[Auto] Please review and accept/reject.")
 
-                self.view.update_status("[Auto] Saved. Clean build plate and press OK.")
+                if self.view.ask_ok_cancel("Accept Image?",
+                                           "The processed image has been sent to Telegram for review.\n\nPress OK to accept and save.\nPress Cancel to reject and continue."):
+                    classification = self.view.classification_dropdown.get()
+                    save_path = self.model.save_image(classification)
+                    self.view.update_status(f"[Auto] Image accepted and saved to {save_path}.")
+                else:
+                    self.view.update_status("[Auto] Image rejected by user. Discarding.")
+
+                if os.path.exists(TEMP_IMAGE_FILE):
+                    os.remove(TEMP_IMAGE_FILE)
+
+                if not self.autonomous_running: break
+
+                self.view.update_status("[Auto] Clean build plate and press OK to continue.")
                 if not self.view.ask_ok_cancel("Autonomous Mode",
                                                "Clean build plate and press OK to continue.\n\nPress Cancel to stop."):
                     self.autonomous_running = False
+
             except Exception as e:
                 self.view.show_error("Autonomous Error", f"A critical error occurred:\n\n{e}")
                 self.autonomous_running = False

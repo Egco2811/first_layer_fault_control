@@ -2,8 +2,6 @@ import tkinter as tk
 from tkinter import messagebox, Frame, Label, Button, Canvas, OptionMenu, Scale, Checkbutton
 from PIL import Image, ImageTk
 
-import controller
-
 
 class View(tk.Tk):
     CLASSIFICATIONS = ["high", "ideal", "low"]
@@ -39,7 +37,7 @@ class View(tk.Tk):
         self.start_auto_button = Button(self.control_frame, text="Start Autonomous Mode")
         self.print_button = Button(self.control_frame, text="Print Shape")
         self.capture_button = Button(self.control_frame, text="Capture Image")
-        self.classification_var = tk.StringVar(value=controller.DEFAULT_AUTONOMOUS_CLASSIFICATION)
+        self.classification_var = tk.StringVar(value=self.CLASSIFICATIONS[1])
         self.classification_dropdown = OptionMenu(self.control_frame, self.classification_var, *self.CLASSIFICATIONS)
         self.save_button = Button(self.control_frame, text="Save Image")
         self.view_buttons = {}

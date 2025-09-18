@@ -21,33 +21,39 @@ def capture_image(moonraker_url, save_path):
         print(f"Error capturing image: {e}")
         return None
 
-def check_print_finish(moonraker_url, interval=15):
     """
     Polls Moonraker until the printer is no longer in a 'printing' state.
     """
-    print("Waiting for the print to complete...")
-    start_time = time.time()
+def poll_print_status(moonraker_url, interval=5):
+    print("Polling for print status...")
     api_endpoint = f"{moonraker_url}/printer/objects/query?print_stats"
     while True:
         try:
             response = requests.get(api_endpoint)
             response.raise_for_status()
-            print_status = response.json()['result']['status']['print_stats']
-            state = print_status['state']
-            print(f"Current printer state: '{state}' (Elapsed: {int(time.time() - start_time)}s)")
-            if state in ["standby", "complete"]:
-                print("Print finished successfully!")
-                return True
-            elif state in ["error", "cancelled"]:
-                print(f"Error during printing: {print_status.get('message', 'No message')}")
-                return False
+            print_stats = response.json()['result']['status']['print_stats']
+            state = print_stats['state']
+            progress = print_stats.get('progress', 0) * 100
+            message = f"Print state: '{state}'. Progress: {progress:.1f}%"
+            print(message)
+            yield state, message
+
+            if state in ["standby", "complete", "error", "cancelled"]:
+                if state == "complete":
+                    print("Print finished successfully!")
+                else:
+                    print(f"Print ended with state '{state}'. Message: {print_stats.get('message', 'N/A')}")
+                break
             time.sleep(interval)
         except requests.exceptions.RequestException as e:
-            print(f"Error polling printer status: {e}")
-            print("Retrying in a moment...")
+            error_message = f"Error polling printer status: {e}"
+            print(error_message)
+            yield "error", error_message
             time.sleep(interval)
         except (KeyError, IndexError) as e:
-            print(f"Could not parse printer status from response. Error: {e}")
+            error_message = f"Could not parse printer status. Error: {e}"
+            print(error_message)
+            yield "error", error_message
             time.sleep(interval)
 
 def send_gcode(moonraker_url, command):
