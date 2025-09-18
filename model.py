@@ -11,6 +11,7 @@ class Model:
     def __init__(self):
         self.original_image = None
         self.processed_image = None
+        self.pipeline_cache = {}
         self.PIPELINE_STEPS = [
             "Original", "Grayscale", "Blurred",
             "Find Outer Edges", "Closed Edges", "Crop to Shape"
@@ -47,78 +48,94 @@ class Model:
         self.original_image = cv2.imread(path)
         if self.original_image is None:
             raise ValueError(f"Failed to read image from {path}. The file may be invalid or missing.")
+
+        self.pipeline_cache.clear()
+        self.pipeline_cache['Original'] = self.original_image.copy()
         self.processed_image = self.original_image.copy()
+
         return self._convert_cv2_to_pil(self.original_image)
 
-    def _execute_step(self, step_name, input_image, sigma, debug_mode):
-        if step_name == 'Original':
-            return self.original_image.copy()
+    def invalidate_sigma_dependent_cache(self):
+        sigma_dependent_steps = ["Find Outer Edges", "Closed Edges", "Crop to Shape"]
+        for step in sigma_dependent_steps:
+            if step in self.pipeline_cache:
+                self.pipeline_cache.pop(step)
+        print("Sigma-dependent cache steps cleared.")
 
-        elif step_name == 'Grayscale':
-            if len(input_image.shape) == 3:
-                return cv2.cvtColor(input_image, cv2.COLOR_BGR2GRAY)
-            return input_image
+    def _ensure_step_in_cache(self, step_name, sigma, debug_mode):
+        if step_name in self.pipeline_cache:
+            return
 
+        try:
+            step_index = self.PIPELINE_STEPS.index(step_name)
+        except ValueError:
+            raise ValueError(f"Unknown processing step: {step_name}")
+
+        if step_index == 0:
+            if 'Original' not in self.pipeline_cache:
+                raise RuntimeError("Original image not found in cache. Please capture an image first.")
+            return
+
+        prev_step_name = self.PIPELINE_STEPS[step_index - 1]
+        self._ensure_step_in_cache(prev_step_name, sigma, debug_mode)
+
+        prev_image = self.pipeline_cache[prev_step_name]
+
+        if step_name == 'Grayscale':
+            if len(prev_image.shape) == 3:
+                processed = cv2.cvtColor(prev_image, cv2.COLOR_BGR2GRAY)
+            else:
+                processed = prev_image
         elif step_name == 'Blurred':
-            return cv2.GaussianBlur(input_image, (7, 7), 0)
-
+            processed = cv2.GaussianBlur(prev_image, (7, 7), 0)
         elif step_name == 'Find Outer Edges':
-            edges = auto_canny(input_image, sigma)
+            edges = auto_canny(prev_image, sigma)
             contours_img = np.zeros_like(edges)
             contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             cv2.drawContours(contours_img, contours, -1, 255, 1)
-            return contours_img
-
+            processed = contours_img
         elif step_name == 'Closed Edges':
             kernel = np.ones((9, 9), np.uint8)
-            return cv2.morphologyEx(input_image, cv2.MORPH_CLOSE, kernel)
-
+            processed = cv2.morphologyEx(prev_image, cv2.MORPH_CLOSE, kernel)
         elif step_name == 'Crop to Shape':
-            contour = find_target_contour(input_image, debug_mode=debug_mode)
-            return crop_from_contour(self.original_image, contour)
+            clean_outline_image = self.pipeline_cache['Closed Edges']
+            contour = find_target_contour(clean_outline_image, debug_mode=debug_mode)
+            original_color_image = self.pipeline_cache['Original']
+            processed = crop_from_contour(original_color_image, contour)
+        else:
+            raise ValueError(f"Execution logic for step '{step_name}' not defined.")
 
-        raise ValueError(f"Unknown processing step: {step_name}")
+        self.pipeline_cache[step_name] = processed
 
     def process_image_step(self, target_step_name, sigma, debug_mode=False):
         if self.original_image is None:
             raise ValueError("An image must be captured first.")
 
-        temp_image = self.original_image.copy()
-
-        try:
-            target_index = self.PIPELINE_STEPS.index(target_step_name)
-        except ValueError:
-            raise ValueError(f"Unknown processing step: {target_step_name}")
-
-        for i in range(1, target_index + 1):
-            step = self.PIPELINE_STEPS[i]
-            temp_image = self._execute_step(step, temp_image, sigma, debug_mode)
-
-        self.processed_image = temp_image
+        self._ensure_step_in_cache(target_step_name, sigma, debug_mode)
+        self.processed_image = self.pipeline_cache[target_step_name]
         return self._convert_cv2_to_pil(self.processed_image)
 
     def run_full_pipeline(self, sigma, debug_mode=False):
-        if self.original_image is None:
-            raise ValueError("Cannot run pipeline, an image must be captured first.")
-
-        temp_image = self.original_image.copy()
-        for step in self.PIPELINE_STEPS[1:]:
-            temp_image = self._execute_step(step, temp_image, sigma, debug_mode)
-
-        self.processed_image = temp_image
-        return self._convert_cv2_to_pil(self.processed_image)
+        return self.process_image_step('Crop to Shape', sigma, debug_mode)
 
     def run_full_pipeline_with_retry(self, user_sigma, debug_mode=False):
-        fallback_sigmas = [0.2, 0.3, 0.4, 0.5, 0.6]
+        user_sigma = round(user_sigma, 2)
+        lower_bound = max(0.0, user_sigma - 0.3)
+        upper_bound = min(1.0, user_sigma + 0.3)
+        step = 0.01
+        num_steps = int(round((upper_bound - lower_bound) / step))
+        sigma_list = [round(lower_bound + i * step, 2) for i in range(num_steps + 1)]
+
         try:
-            fallback_sigmas.remove(user_sigma)
+            sigma_list.remove(user_sigma)
         except ValueError:
             pass
 
-        sigma_values_to_try = [user_sigma] + fallback_sigmas
+        sigma_values_to_try = [user_sigma] + sigma_list
 
         for sigma in sigma_values_to_try:
             try:
+                self.invalidate_sigma_dependent_cache()
                 print(f"Attempting pipeline with sigma={sigma:.2f}")
                 final_image = self.run_full_pipeline(sigma, debug_mode)
                 print(f"Pipeline succeeded with sigma={sigma:.2f}")

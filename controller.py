@@ -119,7 +119,8 @@ class Controller:
             self.view.update_status(f"Error saving: {e}")
 
     def on_sigma_change(self, value):
-        self.view.update_status(f"Sigma set to {float(value):.2f}. Press a button to apply.")
+        self.model.invalidate_sigma_dependent_cache()
+        self.view.update_status(f"Sigma set to {float(value):.2f}. Cache cleared. Press a button to apply.")
 
     def toggle_autonomous_mode(self):
         if not self.autonomous_running:
