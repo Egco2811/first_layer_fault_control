@@ -2,13 +2,11 @@ import requests
 import json
 import time
 
+# (capture_image, check_print_finish, and send_gcode functions remain unchanged)
+
 def capture_image(moonraker_url, save_path):
     """
     Captures an image from the Mainsail webcam.
-
-    Args:
-        moonraker_url (str): The URL of the Moonraker server.
-        save_path (str): The path to save the captured image.
     """
     try:
         snapshots_url = f"{moonraker_url}/webcam/snapshot"
@@ -28,10 +26,6 @@ def capture_image(moonraker_url, save_path):
 def check_print_finish(moonraker_url, interval=15):
     """
     Polls Moonraker until the printer is no longer in a 'printing' state.
-
-    Args:
-        moonraker_url (str): The URL of the Moonraker server.
-        interval (int): Seconds to wait between status checks.
     """
     print("Waiting for the print to complete...")
     start_time = time.time()
@@ -61,16 +55,11 @@ def check_print_finish(moonraker_url, interval=15):
 def send_gcode(moonraker_url, command):
     """
     Sends a gcode command to the Moonraker url provided.
-
-    Args:
-        moonraker_url (str): The URL of the Moonraker server.
-        command (str): The GCode command to be sent.
     """
     api_endpoint = f"{moonraker_url}/printer/gcode/script"
     parameters = {'script': command}
     try:
         response = requests.post(api_endpoint, params=parameters)
-
         if response.status_code == 200:
             print(f"Successfully sent G-Code: '{command}'")
             return True
@@ -79,21 +68,14 @@ def send_gcode(moonraker_url, command):
             print(f"Status Code: {response.status_code}")
             print("Response Body:", response.text)
             return False
-
     except requests.exceptions.RequestException as e:
         print(f"An error occurred with the HTTP request: {e}")
         return False
 
-
 def start_print(moonraker_url, gcode_file):
     """
     Sends a command to start a print to the Moonraker url provided.
-
-    Args:
-        moonraker_url (str): The URL of the Moonraker server.
-        gcode_file (str): The GCode file to be printed.
     """
-
     api_endpoint = f"{moonraker_url}/printer/print/start"
     payload = {"filename": gcode_file}
     headers = {"Content-Type": "application/json"}
@@ -105,3 +87,12 @@ def start_print(moonraker_url, gcode_file):
         print(response.json())
     except requests.exceptions.RequestException as e:
         print(f"An error occurred: {e}")
+
+
+def cancel_print(moonraker_url):
+    """
+    ## NEW FUNCTION ##
+    Sends a CANCEL_PRINT command to Moonraker.
+    """
+    print("Sending CANCEL_PRINT command...")
+    return send_gcode(moonraker_url, "CANCEL_PRINT")
