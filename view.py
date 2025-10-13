@@ -1,6 +1,8 @@
 import tkinter as tk
 from tkinter import ttk, PanedWindow, Entry, Scrollbar, messagebox, Frame, Label, Button, Canvas, OptionMenu, Scale, Checkbutton, Text, filedialog
 from PIL import Image, ImageTk
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
 class View(tk.Tk):
@@ -14,6 +16,12 @@ class View(tk.Tk):
         self.controller = None
         self.current_display_image = None
         self.current_webcam_image = None
+        self.classifier_plot_img = None
+
+        self.acc_data = []
+        self.val_acc_data = []
+        self.loss_data = []
+        self.val_loss_data = []
 
         self.notebook = ttk.Notebook(self)
         self.data_collection_tab = Frame(self.notebook)
@@ -159,8 +167,15 @@ class View(tk.Tk):
 
         self.classifier_display_frame = Frame(self.classification_tab)
         self.classifier_display_frame.pack(pady=5)
-        self.classifier_plot_canvas = Canvas(self.classifier_display_frame, width=600, height=300, bg="white", highlightthickness=1, relief=tk.SUNKEN)
-        self.classifier_plot_canvas.grid(row=0, column=0, padx=10, pady=5)
+        
+        self.plot_fig = Figure(figsize=(6, 3.5), dpi=100)
+        self.ax_acc = self.plot_fig.add_subplot(121)
+        self.ax_loss = self.plot_fig.add_subplot(122)
+        self.plot_fig.tight_layout(pad=2.0)
+
+        self.classifier_plot_canvas = FigureCanvasTkAgg(self.plot_fig, master=self.classifier_display_frame)
+        self.classifier_plot_canvas.get_tk_widget().grid(row=0, column=0, padx=10, pady=5)
+        
         blank_img = Image.new("RGB", (300, 300), "#E5E5E5") 
         self.selected_image_tk = ImageTk.PhotoImage(blank_img)
         self.selected_image_label = Label(self.classifier_display_frame, bg="gray90", relief=tk.SUNKEN, image=self.selected_image_tk)
@@ -308,12 +323,38 @@ class View(tk.Tk):
         except Exception as e:
             self.selected_image_label.config(text="Failed to load image", image="")
 
-    def update_training_plot(self, pil_image):
-        pil_image = pil_image.resize((600, 300), Image.Resampling.LANCZOS)
-        self.classifier_plot_img = ImageTk.PhotoImage(pil_image)
-        self.classifier_plot_canvas.delete("all")
-        self.classifier_plot_canvas.create_image(300, 150, anchor='center', image=self.classifier_plot_img)
-        self.after(0, self.update())
+    def reset_plot_data(self):
+        self.acc_data.clear()
+        self.val_acc_data.clear()
+        self.loss_data.clear()
+        self.val_loss_data.clear()
+
+    def update_training_plot(self, epoch, logs):
+        self.acc_data.append(logs.get('accuracy'))
+        self.val_acc_data.append(logs.get('val_accuracy'))
+        self.loss_data.append(logs.get('loss'))
+        self.val_loss_data.append(logs.get('val_loss'))
+
+        epochs_range = range(epoch + 1)
+
+        self.ax_acc.cla()
+        self.ax_acc.plot(epochs_range, self.acc_data, label='Training Accuracy')
+        self.ax_acc.plot(epochs_range, self.val_acc_data, label='Validation Accuracy')
+        self.ax_acc.legend(loc='lower right', fontsize='small')
+        self.ax_acc.set_title('Accuracy', fontsize='medium')
+        self.ax_acc.set_xlabel('Epoch', fontsize='small')
+        self.ax_acc.set_ylabel('Accuracy', fontsize='small')
+
+        self.ax_loss.cla()
+        self.ax_loss.plot(epochs_range, self.loss_data, label='Training Loss')
+        self.ax_loss.plot(epochs_range, self.val_loss_data, label='Validation Loss')
+        self.ax_loss.legend(loc='upper right', fontsize='small')
+        self.ax_loss.set_title('Loss', fontsize='medium')
+        self.ax_loss.set_xlabel('Epoch', fontsize='small')
+        self.ax_loss.set_ylabel('Loss', fontsize='small')
+
+        self.classifier_plot_canvas.draw()
+        self.update_idletasks()
 
     def update_classifier_console(self, message):
         self.classifier_console.config(state=tk.NORMAL)

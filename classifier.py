@@ -1,15 +1,16 @@
 import tensorflow as tf
-import io
-from PIL import Image
 from keras._tf_keras.keras.models import Sequential
-from keras._tf_keras.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, RandomFlip, RandomRotation, RandomZoom, Rescaling
+from keras._tf_keras.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, RandomFlip, RandomRotation, RandomZoom, Rescaling, BatchNormalization
 from keras._tf_keras.keras.utils import image_dataset_from_directory
-import matplotlib.pyplot as plt
+from keras._tf_keras.keras.regularizers import l2
+from keras._tf_keras.keras.callbacks import ReduceLROnPlateau, EarlyStopping
 
 def train_model(epochs=200, batch_size=8, learning_rate=0.001, plot_callback=None, stop_callback=None):
     data_dir = 'images/'
     img_height = 256
     img_width = 256
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=0.0001)
 
     train_ds = image_dataset_from_directory(
         data_dir,
@@ -51,18 +52,21 @@ def train_model(epochs=200, batch_size=8, learning_rate=0.001, plot_callback=Non
     model = Sequential([
         data_augmentation,
         Rescaling(1./255),
-        Conv2D(16, 3, padding='same', activation='relu'),
+        Conv2D(32, (3, 3), padding='same', activation='relu', kernel_regularizer=l2(0.001)),
+        BatchNormalization(),
         MaxPooling2D(),
-        Conv2D(32, 3, padding='same', activation='relu'),
+        Conv2D(64, (3, 3), padding='same', activation='relu', kernel_regularizer=l2(0.001)),
+        BatchNormalization(),
         MaxPooling2D(),
-        Conv2D(64, 3, padding='same', activation='relu'),
+        Conv2D(128, (3, 3), padding='same', activation='relu', kernel_regularizer=l2(0.001)),
+        BatchNormalization(),
         MaxPooling2D(),
         Flatten(),
-        Dense(128, activation='relu'),
+        Dense(256, activation='relu', kernel_regularizer=l2(0.001)),
+        BatchNormalization(),
         Dropout(0.5),
         Dense(num_classes, activation='softmax')
     ])
-
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
     model.compile(optimizer=optimizer,
                   loss='categorical_crossentropy',
@@ -71,58 +75,26 @@ def train_model(epochs=200, batch_size=8, learning_rate=0.001, plot_callback=Non
     model.summary()
 
     class LivePlotCallback(tf.keras.callbacks.Callback):
-        def __init__(self, epochs, stop_callback=None):
-            self.epochs = epochs
+        def __init__(self, plot_callback=None, stop_callback=None):
+            super().__init__()
+            self.plot_callback = plot_callback
             self.stop_callback = stop_callback
-            self.acc = []
-            self.val_acc = []
-            self.loss = []
-            self.val_loss = []
-            self.fig, self.axs = plt.subplots(1, 2, figsize=(12, 6))
 
         def on_epoch_end(self, epoch, logs=None):
-            self.acc.append(logs.get('accuracy'))
-            self.val_acc.append(logs.get('val_accuracy'))
-            self.loss.append(logs.get('loss'))
-            self.val_loss.append(logs.get('val_loss'))
-
-            self.axs[0].cla()
-            self.axs[0].plot(range(epoch+1), self.acc, label='Training Accuracy')
-            self.axs[0].plot(range(epoch+1), self.val_acc, label='Validation Accuracy')
-            self.axs[0].legend(loc='lower right')
-            self.axs[0].set_title('Training and Validation Accuracy')
-
-            self.axs[1].cla()
-            self.axs[1].plot(range(epoch+1), self.loss, label='Training Loss')
-            self.axs[1].plot(range(epoch+1), self.val_loss, label='Validation Loss')
-            self.axs[1].legend(loc='upper right')
-            self.axs[1].set_title('Training and Validation Loss')
-
-            self.fig.tight_layout()
-            self.fig.canvas.draw()
-            if plot_callback:
-                buf = io.BytesIO()
-                self.fig.savefig(buf, format='png')
-                buf.seek(0)
-                pil_img = Image.open(buf)
-                plot_callback(pil_img)
-                buf.close()
+            if self.plot_callback:
+                self.plot_callback(epoch, logs)
+            
             if self.stop_callback and self.stop_callback():
-                print("Early stopping requested. Saving model...")
+                print("Early stopping requested by user. Saving model...")
                 self.model.stop_training = True
-                self.model.save('image_classifier_model.h5')
-                print("Model saved successfully as image_classifier_model.h5")
 
-        def on_train_end(self, logs=None):
-            plt.close(self.fig)
-
-    live_plot = LivePlotCallback(epochs, stop_callback=stop_callback)
+    live_plot = LivePlotCallback(plot_callback=plot_callback, stop_callback=stop_callback)
 
     history = model.fit(
         train_ds,
         validation_data=val_ds,
         epochs=epochs,
-        callbacks=[live_plot]
+        callbacks=[live_plot, early_stopping, reduce_lr]
     )
 
     print("\n--- Evaluating on Test Data ---")

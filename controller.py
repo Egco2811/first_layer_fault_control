@@ -5,6 +5,7 @@ import cv2
 from PIL import Image, ImageTk
 from predictor import Predictor
 from classifier import train_model
+from contextlib import redirect_stderr
 
 
 UNPROCESSED_IMAGE_FILE = "unprocessed.jpg"
@@ -25,7 +26,6 @@ class Controller:
         threading.Thread(target=target_func, args=args, daemon=True).start()
 
     def on_close(self):
-        """Handle window closing event."""
         self.stop_webcam_stream()
         self.view.destroy()
 
@@ -51,7 +51,8 @@ class Controller:
             else:
                 self.view.update_status("Print failed or was cancelled.")
         except Exception as e:
-            self.view.show_error("Print Error", f"Failed to start print:\n\n{e}")
+            self.view.show_error(
+                "Print Error", f"Failed to start print:\n\n{e}")
             self.view.update_status(f"Error: {e}")
         finally:
             self.view.set_ui_state('IDLE')
@@ -68,7 +69,8 @@ class Controller:
             self.view.update_status("Image captured. Ready to process.")
             self.view.set_ui_state('CAPTURED')
         except Exception as e:
-            self.view.show_error("Capture Error", f"Failed to capture image:\n\n{e}")
+            self.view.show_error(
+                "Capture Error", f"Failed to capture image:\n\n{e}")
             self.view.update_status(f"Error: {e}")
             self.view.set_ui_state('IDLE')
 
@@ -80,21 +82,25 @@ class Controller:
         try:
             sigma = self.view.canny_sigma_var.get()
             debug_mode = self.view.debug_mode_var.get()
-            processed_image = self.model.process_image_step(step_name, sigma, debug_mode)
+            processed_image = self.model.process_image_step(
+                step_name, sigma, debug_mode)
             self.view.update_image_display(processed_image)
 
             if step_name == 'Crop to Shape':
-                self.view.update_status(f"Applied '{step_name}'. Ready to save.")
+                self.view.update_status(
+                    f"Applied '{step_name}'. Ready to save.")
                 self.view.set_ui_state('PROCESSED')
             else:
                 self.view.update_status(f"Applied '{step_name}' filter.")
         except Exception as e:
             if step_name == 'Crop to Shape' and isinstance(e, RuntimeError):
-                self.view.update_status("Shape detection failed. Trying fallback...")
+                self.view.update_status(
+                    "Shape detection failed. Trying fallback...")
                 try:
                     fallback_image = self.model.crop_with_fallback()
                     self.view.update_image_display(fallback_image)
-                    self.view.update_status("Used last successful crop parameters. Ready to save.")
+                    self.view.update_status(
+                        "Used last successful crop parameters. Ready to save.")
                     self.view.set_ui_state('PROCESSED')
                     self.view.show_info("Processing Notice",
                                         "Could not detect a new shape. The last successful crop parameters have been applied.")
@@ -103,7 +109,8 @@ class Controller:
                                          f"Failed at step '{step_name}':\n\n{e}\n\nFallback also failed:\n\n{fallback_e}")
                     self.view.update_status(f"Error at step '{step_name}'")
             else:
-                self.view.show_error("Processing Error", f"Failed at step '{step_name}':\n\n{e}")
+                self.view.show_error("Processing Error",
+                                     f"Failed at step '{step_name}':\n\n{e}")
                 self.view.update_status(f"Error at step '{step_name}'")
 
     def process_to_final(self):
@@ -130,11 +137,13 @@ class Controller:
 
         except RuntimeError as e:
             self.view.show_error("Processing Error", str(e))
-            self.view.update_status("Error in pipeline: Could not find a suitable shape.")
+            self.view.update_status(
+                "Error in pipeline: Could not find a suitable shape.")
             self.view.set_ui_state('CAPTURED')
 
         except Exception as e:
-            self.view.show_error("Processing Error", f"An unexpected error occurred:\n\n{e}")
+            self.view.show_error("Processing Error",
+                                 f"An unexpected error occurred:\n\n{e}")
             self.view.update_status(f"Error in pipeline: {e}")
             self.view.set_ui_state('CAPTURED')
 
@@ -148,14 +157,16 @@ class Controller:
             save_path = self.model.save_image(classification)
             self.model.commit_last_found_corners()
             self.view.show_info("Success", f"Image saved as {save_path}")
-            self.view.update_status(f"Saved to '{classification}'. Ready for next cycle.")
+            self.view.update_status(
+                f"Saved to '{classification}'. Ready for next cycle.")
         except Exception as e:
             self.view.show_error("Save Error", f"Failed to save image:\n\n{e}")
             self.view.update_status(f"Error saving: {e}")
 
     def on_sigma_change(self, value):
         self.model.invalidate_sigma_dependent_cache()
-        self.view.update_status(f"Sigma set to {float(value):.2f}. Cache cleared. Press a button to apply.")
+        self.view.update_status(
+            f"Sigma set to {float(value):.2f}. Cache cleared. Press a button to apply.")
 
     def toggle_autonomous_mode(self):
         if not self.autonomous_running:
@@ -164,7 +175,8 @@ class Controller:
             self._run_task(self.autonomous_loop)
         else:
             self.autonomous_running = False
-            self.view.update_status("Stopping autonomous mode and cancelling print...")
+            self.view.update_status(
+                "Stopping autonomous mode and cancelling print...")
             self._run_task(self.model.cancel_print)
 
     def autonomous_loop(self):
@@ -181,21 +193,25 @@ class Controller:
                         print_succeeded = True
                         break
                     elif state in ["error", "cancelled"]:
-                        self.view.update_status(f"[Auto] Print failed or was cancelled. State: {state}")
+                        self.view.update_status(
+                            f"[Auto] Print failed or was cancelled. State: {state}")
                         break
 
                 if not self.autonomous_running or not print_succeeded:
                     if print_succeeded:
-                        self.view.update_status("[Auto] Operation cancelled by user.")
+                        self.view.update_status(
+                            "[Auto] Operation cancelled by user.")
                     else:
-                        self.view.update_status("[Auto] Print did not complete. Stopping.")
+                        self.view.update_status(
+                            "[Auto] Print did not complete. Stopping.")
                     break
                 time.sleep(5)
 
                 self.view.update_status("[Auto] Capturing image...")
                 self.model.capture_and_load_image(UNPROCESSED_IMAGE_FILE)
 
-                self.view.update_status("[Auto] Processing with retry logic...")
+                self.view.update_status(
+                    "[Auto] Processing with retry logic...")
                 final_pil_image = None
                 try:
                     user_sigma = self.view.canny_sigma_var.get()
@@ -213,10 +229,12 @@ class Controller:
                     self.view.show_error("Autonomous Error", error_msg)
                     self.autonomous_running = False
 
-                if not self.autonomous_running: break
+                if not self.autonomous_running:
+                    break
 
                 self.view.update_image_display(final_pil_image)
-                if not self.autonomous_running: break
+                if not self.autonomous_running:
+                    break
 
                 self.view.update_status("[Auto] Awaiting user acceptance...")
                 self.model.save_temp_image(TEMP_IMAGE_FILE)
@@ -233,34 +251,41 @@ class Controller:
                     classification = self.view.classification_var.get()
                     save_path = self.model.save_image(classification)
                     self.model.commit_last_found_corners()
-                    self.view.update_status(f"[Auto] Image accepted and saved to {save_path}.")
+                    self.view.update_status(
+                        f"[Auto] Image accepted and saved to {save_path}.")
                 elif acceptance is False:
-                    self.view.update_status("[Auto] User rejected current image. Applying fallback...")
+                    self.view.update_status(
+                        "[Auto] User rejected current image. Applying fallback...")
                     try:
                         fallback_pil_image = self.model.crop_with_fallback()
                         self.view.update_image_display(fallback_pil_image)
                         classification = self.view.classification_var.get()
                         save_path = self.model.save_image(classification)
-                        self.view.update_status(f"[Auto] Fallback image saved to {save_path}.")
+                        self.view.update_status(
+                            f"[Auto] Fallback image saved to {save_path}.")
                     except Exception as e:
                         error_msg = f"[Auto] Fallback processing failed: {e}. Discarding image."
                         self.view.show_error("Autonomous Error", error_msg)
                         self.view.update_status(error_msg)
-                else:  
-                    self.view.update_status("[Auto] Image rejected by user. Discarding.")
+                else:
+                    self.view.update_status(
+                        "[Auto] Image rejected by user. Discarding.")
 
                 if os.path.exists(TEMP_IMAGE_FILE):
                     os.remove(TEMP_IMAGE_FILE)
 
-                if not self.autonomous_running: break
+                if not self.autonomous_running:
+                    break
 
-                self.view.update_status("[Auto] Clean build plate and press OK to continue.")
+                self.view.update_status(
+                    "[Auto] Clean build plate and press OK to continue.")
                 if not self.view.ask_ok_cancel("Autonomous Mode",
                                                "Clean build plate and press OK to continue.\n\nPress Cancel to stop."):
                     self.autonomous_running = False
 
             except Exception as e:
-                self.view.show_error("Autonomous Error", f"A critical error occurred:\n\n{e}")
+                self.view.show_error("Autonomous Error",
+                                     f"A critical error occurred:\n\n{e}")
                 self.autonomous_running = False
 
         self.autonomous_running = False
@@ -276,7 +301,8 @@ class Controller:
             self.model.adjust_z_offset(amount)
             self.view.update_status(f"Z-Offset adjusted. Ready.")
         except Exception as e:
-            self.view.show_error("Z-Offset Error", f"Failed to adjust Z-Offset:\n\n{e}")
+            self.view.show_error(
+                "Z-Offset Error", f"Failed to adjust Z-Offset:\n\n{e}")
             self.view.update_status(f"Error: {e}")
 
     def restart_firmware(self):
@@ -289,9 +315,11 @@ class Controller:
         try:
             self.model.restart_firmware()
             self.view.update_status("Firmware restart command sent.")
-            self.view.show_info("Firmware Restart", "Firmware restart command sent. The printer will reboot.")
+            self.view.show_info(
+                "Firmware Restart", "Firmware restart command sent. The printer will reboot.")
         except Exception as e:
-            self.view.show_error("Firmware Restart Error", f"Failed to send restart command:\n\n{e}")
+            self.view.show_error("Firmware Restart Error",
+                                 f"Failed to send restart command:\n\n{e}")
             self.view.update_status(f"Error: {e}")
         finally:
             self.view.set_ui_state('IDLE')
@@ -306,7 +334,8 @@ class Controller:
             self.model.auto_home()
             self.view.update_status("Homing complete.")
         except Exception as e:
-            self.view.show_error("Homing Error", f"Failed to home axes:\n\n{e}")
+            self.view.show_error(
+                "Homing Error", f"Failed to home axes:\n\n{e}")
             self.view.update_status(f"Error: {e}")
         finally:
             self.view.set_ui_state('IDLE')
@@ -322,7 +351,8 @@ class Controller:
             self.model.send_gcode(command)
             self.view.update_status(f"G-Code '{command}' sent successfully.")
         except Exception as e:
-            self.view.show_error("G-Code Error", f"Failed to send command:\n\n{e}")
+            self.view.show_error(
+                "G-Code Error", f"Failed to send command:\n\n{e}")
             self.view.update_status(f"Error sending G-Code: {e}")
 
     def start_webcam_stream(self):
@@ -339,33 +369,39 @@ class Controller:
         stream_url = self.model.get_webcam_stream_url()
         self.view.update_status(f"Starting webcam stream from {stream_url}")
 
-        cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
-
-        while self.webcam_running:
-            ret, frame = cap.read()
-            if ret:
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                pil_image = Image.fromarray(frame_rgb)
-                pil_image.thumbnail((240, 180))  
-                self.view.update_webcam_display(pil_image)
-            else:
-                self.view.update_status("Webcam stream ended or failed to connect. Retrying...")
-                time.sleep(5) 
-                cap.release()
+        with open(os.devnull, 'w') as devnull:
+            with redirect_stderr(devnull):
                 cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
+
+                while self.webcam_running:
+                    ret, frame = cap.read()
+                    if ret:
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        pil_image = Image.fromarray(frame_rgb)
+                        pil_image.thumbnail((240, 180))
+                        self.view.update_webcam_display(pil_image)
+                    else:
+                        self.view.update_status(
+                            "Webcam stream ended or failed to connect. Retrying...")
+                        time.sleep(5)
+                        cap.release()
+                        cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
 
         cap.release()
         self.view.update_status("Webcam stream stopped.")
 
     def set_prediction_file(self, file_path):
         self.prediction_file_path = file_path
-        self.view.update_classifier_console(f"Selected file for prediction: {file_path}")
+        self.view.update_classifier_console(
+            f"Selected file for prediction: {file_path}")
 
     def predict_selected_file(self):
         if not hasattr(self, "prediction_file_path") or not self.prediction_file_path:
-            self.view.update_classifier_console("No file selected for prediction.")
+            self.view.update_classifier_console(
+                "No file selected for prediction.")
             return
-        threading.Thread(target=self._predict_task, args=(self.prediction_file_path,), daemon=True).start()
+        threading.Thread(target=self._predict_task, args=(
+            self.prediction_file_path,), daemon=True).start()
 
     def _predict_task(self, image_path):
         self.view.update_classifier_console("Running prediction...")
@@ -376,31 +412,52 @@ class Controller:
         except Exception as e:
             self.view.update_classifier_console(f"Prediction failed: {e}")
 
-    def start_network_training(self, epochs=200, batch_size=8, learning_rate=0.001):
+    def start_network_training(self):
+        try:
+            epochs = self.view.epochs_var.get()
+            batch_size = self.view.batch_size_var.get()
+            learning_rate = self.view.lr_var.get()
+        except Exception as e:
+            self.view.show_error("Configuration Error", f"Could not read training parameters from UI: {e}")
+            return
+        
+        self.view.reset_plot_data()
         self._stop_training_flag.clear()
         self.view.stop_training_button.config(state='normal')
-        self.view.update_classifier_console("Network training started...")
-        def plot_callback(pil_img):
-            self.view.update_training_plot(pil_img)
+        self.view.update_classifier_console(
+            f"Starting network training with {epochs} epochs, batch size {batch_size}, and learning rate {learning_rate}..."
+        )
+
+        def plot_callback(epoch, logs):
+            self.view.after(0, self.view.update_training_plot, epoch, logs)
+
         def stop_callback():
             return self._stop_training_flag.is_set()
-        try:
-            history = train_model(
-                epochs=epochs,
-                batch_size=batch_size,
-                learning_rate=learning_rate,
-                plot_callback=plot_callback,
-                stop_callback=stop_callback
-            )
-            final_acc = history.history.get('accuracy', [None])[-1]
-            self.view.update_classifier_console(
-                f"Training completed. Final accuracy: {final_acc:.2f}" if final_acc else "Training completed successfully."
-            )
-        except Exception as e:
-            self.view.update_classifier_console(f"Training failed: {e}")
-        finally:
-            self.view.stop_training_button.config(state='disabled')
+
+        def training_task():
+            try:
+                history = train_model(
+                    epochs=epochs,
+                    batch_size=batch_size,
+                    learning_rate=learning_rate,
+                    plot_callback=plot_callback,
+                    stop_callback=stop_callback
+                )
+                if not self._stop_training_flag.is_set():
+                    final_acc = history.history.get('accuracy', [None])[-1]
+                    message = f"Training completed. Final accuracy: {final_acc:.2f}" if final_acc else "Training completed successfully."
+                    self.view.after(0, self.view.update_classifier_console, message)
+            except Exception as e:
+                import traceback
+                print(traceback.format_exc())
+                error_message = f"Training failed: {e}"
+                self.view.after(0, self.view.update_classifier_console, error_message)
+            finally:
+                self.view.after(0, lambda: self.view.stop_training_button.config(state='disabled'))
+
+        threading.Thread(target=training_task, daemon=True).start()
 
     def stop_network_training(self):
         self._stop_training_flag.set()
-        self.view.update_classifier_console("Training will stop after current epoch and model will be saved.")
+        self.view.update_classifier_console(
+            "Training will stop after current epoch and model will be saved.")

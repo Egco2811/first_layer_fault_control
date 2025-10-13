@@ -187,3 +187,4 @@ cython_debug/
 *.txt
 *.json
 *.exe
+*.h5
