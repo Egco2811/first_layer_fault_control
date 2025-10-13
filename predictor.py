@@ -1,6 +1,6 @@
 import tensorflow as tf
 import numpy as np
-from tensorflow.keras.utils import load_img, img_to_array
+from keras._tf_keras.keras.preprocessing.image import load_img, img_to_array
 
 class Predictor:
     def __init__(self, model_path='image_classifier_model.h5'):

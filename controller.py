@@ -4,6 +4,8 @@ import os
 import cv2
 from PIL import Image, ImageTk
 from predictor import Predictor
+from classifier import train_model
+
 
 UNPROCESSED_IMAGE_FILE = "unprocessed.jpg"
 TEMP_IMAGE_FILE = "temp_autonomous_capture.jpg"
@@ -374,7 +376,10 @@ class Controller:
             self.view.update_classifier_console(f"Prediction failed: {e}")
 
     def start_network_training(self):
-        self.view.update_classifier_console("Network training started (stub).")
-        from PIL import Image
-        img = Image.new("RGB", (600, 300), (255, 255, 255))
-        self.view.update_training_plot(img)
+        self.view.update_classifier_console("Network training started...")
+        try:
+            history = train_model()
+            final_acc = history.history.get('accuracy', [None])[-1]
+            self.view.update_classifier_console(f"Training completed. Final accuracy: {final_acc:.2f}" if final_acc else "Training completed successfully.")
+        except Exception as e:
+            self.view.update_classifier_console(f"Training failed: {e}")
