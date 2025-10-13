@@ -3,7 +3,8 @@ import cv2
 import numpy as np
 import json
 from PIL import Image
-from moonraker_interface import start_print, poll_print_status, capture_image, cancel_print
+from moonraker_interface import (start_print, poll_print_status, capture_image, cancel_print,
+                                 adjust_z_offset, restart_firmware, auto_home, send_gcode)
 from preprocess_image import find_target_contour, crop_from_contour, auto_canny
 from file_handler import send_telegram_image
 
@@ -230,3 +231,20 @@ class Model:
 
     def send_telegram_notification(self, image_path, caption=""):
         send_telegram_image(self.TOKEN, self.CHAT_ID, image_path, caption)
+
+    def adjust_z_offset(self, adjustment):
+        adjust_z_offset(self.PRINTER_ADDRESS, adjustment)
+
+    def restart_firmware(self):
+        restart_firmware(self.PRINTER_ADDRESS)
+
+    def auto_home(self):
+        auto_home(self.PRINTER_ADDRESS)
+
+    def send_gcode(self, command):
+        send_gcode(self.PRINTER_ADDRESS, command)
+
+    def get_webcam_stream_url(self):
+        return f"{self.PRINTER_ADDRESS}/webcam/stream"
+
+    

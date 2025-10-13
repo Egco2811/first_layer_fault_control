@@ -109,3 +109,25 @@ def cancel_print(moonraker_url):
     """
     print("Sending CANCEL_PRINT command...")
     return send_gcode(moonraker_url, "CANCEL_PRINT")
+
+def adjust_z_offset(moonraker_url, adjustment):
+    """
+    Adjusts the Z-offset by the specified amount.
+    """
+    command = f"SET_GCODE_OFFSET Z_ADJUST={adjustment} MOVE=1"
+    print(f"Adjusting Z-offset by {adjustment}...")
+    return send_gcode(moonraker_url, command)
+
+def restart_firmware(moonraker_url):
+    """
+    Sends a FIRMWARE_RESTART command to Moonraker.
+    """
+    print("Sending FIRMWARE_RESTART command...")
+    return send_gcode(moonraker_url, "FIRMWARE_RESTART")
+
+def auto_home(moonraker_url):
+    """
+    Sends a G28 command to home all axes.
+    """
+    print("Sending G28 (Auto Home) command...")
+    return send_gcode(moonraker_url, "G28")

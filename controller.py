@@ -2,6 +2,8 @@ import threading
 import time
 import os
 import cv2
+from PIL import Image, ImageTk
+from predictor import Predictor
 
 UNPROCESSED_IMAGE_FILE = "unprocessed.jpg"
 TEMP_IMAGE_FILE = "temp_autonomous_capture.jpg"
@@ -11,10 +13,18 @@ class Controller:
     def __init__(self, model, view):
         self.model = model
         self.view = view
+        self.predictor = Predictor()
         self.autonomous_running = False
+        self.webcam_running = False
+        self.start_webcam_stream()
 
     def _run_task(self, target_func, *args):
         threading.Thread(target=target_func, args=args, daemon=True).start()
+
+    def on_close(self):
+        """Handle window closing event."""
+        self.stop_webcam_stream()
+        self.view.destroy()
 
     def print_shape(self):
         self._run_task(self._print_shape_task)
@@ -83,9 +93,11 @@ class Controller:
                     self.view.update_image_display(fallback_image)
                     self.view.update_status("Used last successful crop parameters. Ready to save.")
                     self.view.set_ui_state('PROCESSED')
-                    self.view.show_info("Processing Notice", "Could not detect a new shape. The last successful crop parameters have been applied.")
+                    self.view.show_info("Processing Notice",
+                                        "Could not detect a new shape. The last successful crop parameters have been applied.")
                 except Exception as fallback_e:
-                    self.view.show_error("Processing Error", f"Failed at step '{step_name}':\n\n{e}\n\nFallback also failed:\n\n{fallback_e}")
+                    self.view.show_error("Processing Error",
+                                         f"Failed at step '{step_name}':\n\n{e}\n\nFallback also failed:\n\n{fallback_e}")
                     self.view.update_status(f"Error at step '{step_name}'")
             else:
                 self.view.show_error("Processing Error", f"Failed at step '{step_name}':\n\n{e}")
@@ -100,13 +112,15 @@ class Controller:
         try:
             user_sigma = self.view.canny_sigma_var.get()
             debug_mode = self.view.debug_mode_var.get()
-            final_image, successful_sigma, used_fallback = self.model.run_full_pipeline_with_retry(user_sigma, debug_mode)
+            final_image, successful_sigma, used_fallback = self.model.run_full_pipeline_with_retry(user_sigma,
+                                                                                                   debug_mode)
 
             self.view.update_image_display(final_image)
             status_message = f"Pipeline succeeded with sigma={successful_sigma:.2f}. Ready to save."
             if used_fallback:
                 status_message = "Shape detection failed. Used last successful parameters. Ready to save."
-                self.view.show_info("Processing Notice", "Could not detect a new shape. The last successful crop parameters have been applied.")
+                self.view.show_info("Processing Notice",
+                                    "Could not detect a new shape. The last successful crop parameters have been applied.")
 
             self.view.update_status(status_message)
             self.view.set_ui_state('PROCESSED')
@@ -183,7 +197,8 @@ class Controller:
                 try:
                     user_sigma = self.view.canny_sigma_var.get()
                     debug_mode = self.view.debug_mode_var.get()
-                    final_pil_image, successful_sigma, used_fallback = self.model.run_full_pipeline_with_retry(user_sigma, debug_mode)
+                    final_pil_image, successful_sigma, used_fallback = self.model.run_full_pipeline_with_retry(
+                        user_sigma, debug_mode)
                     status_message = f"[Auto] Image processed successfully with sigma={successful_sigma:.2f}."
                     if used_fallback:
                         status_message = "[Auto] Shape detection failed. Used last successful parameters."
@@ -228,9 +243,8 @@ class Controller:
                         error_msg = f"[Auto] Fallback processing failed: {e}. Discarding image."
                         self.view.show_error("Autonomous Error", error_msg)
                         self.view.update_status(error_msg)
-                else: # acceptance is None
+                else:  
                     self.view.update_status("[Auto] Image rejected by user. Discarding.")
-
 
                 if os.path.exists(TEMP_IMAGE_FILE):
                     os.remove(TEMP_IMAGE_FILE)
@@ -249,3 +263,118 @@ class Controller:
         self.autonomous_running = False
         self.view.set_ui_state('IDLE')
         self.view.update_status("Idle")
+
+    def adjust_z(self, amount):
+        self._run_task(self._adjust_z_task, amount)
+
+    def _adjust_z_task(self, amount):
+        self.view.update_status(f"Adjusting Z-Offset by {amount:.3f}mm...")
+        try:
+            self.model.adjust_z_offset(amount)
+            self.view.update_status(f"Z-Offset adjusted. Ready.")
+        except Exception as e:
+            self.view.show_error("Z-Offset Error", f"Failed to adjust Z-Offset:\n\n{e}")
+            self.view.update_status(f"Error: {e}")
+
+    def restart_firmware(self):
+        if self.view.ask_ok_cancel("Confirm Restart", "Are you sure you want to restart the printer firmware?"):
+            self._run_task(self._restart_firmware_task)
+
+    def _restart_firmware_task(self):
+        self.view.set_ui_state('BUSY')
+        self.view.update_status("Restarting firmware...")
+        try:
+            self.model.restart_firmware()
+            self.view.update_status("Firmware restart command sent.")
+            self.view.show_info("Firmware Restart", "Firmware restart command sent. The printer will reboot.")
+        except Exception as e:
+            self.view.show_error("Firmware Restart Error", f"Failed to send restart command:\n\n{e}")
+            self.view.update_status(f"Error: {e}")
+        finally:
+            self.view.set_ui_state('IDLE')
+
+    def auto_home(self):
+        self._run_task(self._auto_home_task)
+
+    def _auto_home_task(self):
+        self.view.set_ui_state('BUSY')
+        self.view.update_status("Homing all axes...")
+        try:
+            self.model.auto_home()
+            self.view.update_status("Homing complete.")
+        except Exception as e:
+            self.view.show_error("Homing Error", f"Failed to home axes:\n\n{e}")
+            self.view.update_status(f"Error: {e}")
+        finally:
+            self.view.set_ui_state('IDLE')
+
+    def send_gcode(self, command):
+        if not command:
+            return
+        self._run_task(self._send_gcode_task, command)
+
+    def _send_gcode_task(self, command):
+        self.view.update_status(f"Sending G-Code: {command}")
+        try:
+            self.model.send_gcode(command)
+            self.view.update_status(f"G-Code '{command}' sent successfully.")
+        except Exception as e:
+            self.view.show_error("G-Code Error", f"Failed to send command:\n\n{e}")
+            self.view.update_status(f"Error sending G-Code: {e}")
+
+    def start_webcam_stream(self):
+        if not self.webcam_running:
+            self.webcam_running = True
+            self._run_task(self._webcam_loop)
+
+    def stop_webcam_stream(self):
+        self.webcam_running = False
+
+    def _webcam_loop(self):
+        os.environ['OPENCV_FFMPEG_LOGLEVEL'] = '0'
+
+        stream_url = self.model.get_webcam_stream_url()
+        self.view.update_status(f"Starting webcam stream from {stream_url}")
+
+        cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
+
+        while self.webcam_running:
+            ret, frame = cap.read()
+            if ret:
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                pil_image = Image.fromarray(frame_rgb)
+                pil_image.thumbnail((240, 180))  
+                self.view.update_webcam_display(pil_image)
+            else:
+                self.view.update_status("Webcam stream ended or failed to connect. Retrying...")
+                time.sleep(5) 
+                cap.release()
+                cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
+
+        cap.release()
+        self.view.update_status("Webcam stream stopped.")
+
+    def set_prediction_file(self, file_path):
+        self.prediction_file_path = file_path
+        self.view.update_classifier_console(f"Selected file for prediction: {file_path}")
+
+    def predict_selected_file(self):
+        if not hasattr(self, "prediction_file_path") or not self.prediction_file_path:
+            self.view.update_classifier_console("No file selected for prediction.")
+            return
+        threading.Thread(target=self._predict_task, args=(self.prediction_file_path,), daemon=True).start()
+
+    def _predict_task(self, image_path):
+        self.view.update_classifier_console("Running prediction...")
+        try:
+            predicted_class, confidence = self.predictor.predict(image_path)
+            result = f"Prediction: '{predicted_class}' ({confidence:.2f}% confidence)"
+            self.view.update_classifier_console(result)
+        except Exception as e:
+            self.view.update_classifier_console(f"Prediction failed: {e}")
+
+    def start_network_training(self):
+        self.view.update_classifier_console("Network training started (stub).")
+        from PIL import Image
+        img = Image.new("RGB", (600, 300), (255, 255, 255))
+        self.view.update_training_plot(img)
