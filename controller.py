@@ -18,6 +18,7 @@ class Controller:
         self.predictor = Predictor()
         self.autonomous_running = False
         self.webcam_running = False
+        self._stop_training_flag = threading.Event()
         self.start_webcam_stream()
 
     def _run_task(self, target_func, *args):
@@ -375,11 +376,31 @@ class Controller:
         except Exception as e:
             self.view.update_classifier_console(f"Prediction failed: {e}")
 
-    def start_network_training(self):
+    def start_network_training(self, epochs=200, batch_size=8, learning_rate=0.001):
+        self._stop_training_flag.clear()
+        self.view.stop_training_button.config(state='normal')
         self.view.update_classifier_console("Network training started...")
+        def plot_callback(pil_img):
+            self.view.update_training_plot(pil_img)
+        def stop_callback():
+            return self._stop_training_flag.is_set()
         try:
-            history = train_model()
+            history = train_model(
+                epochs=epochs,
+                batch_size=batch_size,
+                learning_rate=learning_rate,
+                plot_callback=plot_callback,
+                stop_callback=stop_callback
+            )
             final_acc = history.history.get('accuracy', [None])[-1]
-            self.view.update_classifier_console(f"Training completed. Final accuracy: {final_acc:.2f}" if final_acc else "Training completed successfully.")
+            self.view.update_classifier_console(
+                f"Training completed. Final accuracy: {final_acc:.2f}" if final_acc else "Training completed successfully."
+            )
         except Exception as e:
             self.view.update_classifier_console(f"Training failed: {e}")
+        finally:
+            self.view.stop_training_button.config(state='disabled')
+
+    def stop_network_training(self):
+        self._stop_training_flag.set()
+        self.view.update_classifier_console("Training will stop after current epoch and model will be saved.")

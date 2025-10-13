@@ -51,6 +51,7 @@ class View(tk.Tk):
         self.classifier_train_button.config(command=controller.start_network_training)
         self.select_file_button.config(command=self._select_prediction_file)
         self.predict_button.config(command=controller.predict_selected_file)
+        self.stop_training_button.config(command=controller.stop_network_training)
 
     def _on_closing(self):
         if self.controller:
@@ -123,36 +124,62 @@ class View(tk.Tk):
         self.sigma_slider = Scale(self.processing_views_frame, from_=0.0, to=1.0, resolution=0.01, orient=tk.HORIZONTAL,
                                   variable=self.canny_sigma_var)
 
-        self.classifier_train_button = Button(self.classification_tab, text="Start Network Training")
-        self.classifier_train_button.pack(pady=10, anchor='n')
+        self.training_controls_frame = Frame(self.classification_tab)
+        self.training_controls_frame.pack(side=tk.TOP, fill=tk.X, pady=10)
+        self.training_controls_inner = Frame(self.training_controls_frame)
+        self.training_controls_inner.pack(anchor='center')
+
+        Label(self.training_controls_inner, text="Epochs:").pack(side=tk.LEFT, padx=2)
+        self.epochs_var = tk.IntVar(value=200)
+        self.epochs_slider = Scale(
+            self.training_controls_inner,
+            from_=5,
+            to=500,
+            orient=tk.HORIZONTAL,
+            variable=self.epochs_var,
+            length=120,
+            resolution=5  
+        )
+        self.epochs_slider.pack(side=tk.LEFT, padx=2)
+
+        Label(self.training_controls_inner, text="Batch Size:").pack(side=tk.LEFT, padx=2)
+        self.batch_size_var = tk.IntVar(value=8)
+        self.batch_size_slider = Scale(self.training_controls_inner, from_=1, to=64, orient=tk.HORIZONTAL, variable=self.batch_size_var, length=120)
+        self.batch_size_slider.pack(side=tk.LEFT, padx=2)
+
+        Label(self.training_controls_inner, text="Learning Rate:").pack(side=tk.LEFT, padx=2)
+        self.lr_var = tk.DoubleVar(value=0.001)
+        self.lr_slider = Scale(self.training_controls_inner, from_=0.0001, to=0.01, resolution=0.0001, orient=tk.HORIZONTAL, variable=self.lr_var, length=120)
+        self.lr_slider.pack(side=tk.LEFT, padx=2)
+
+        self.classifier_train_button = Button(self.training_controls_inner, text="Start Network Training")
+        self.classifier_train_button.pack(side=tk.LEFT, padx=10)
+        self.stop_training_button = Button(self.training_controls_inner, text="Stop Training", state=tk.DISABLED)
+        self.stop_training_button.pack(side=tk.LEFT, padx=10)
 
         self.classifier_display_frame = Frame(self.classification_tab)
         self.classifier_display_frame.pack(pady=5)
-
-        self.classifier_plot_canvas = Canvas(self.classifier_display_frame, width=300, height=300, bg="white", highlightthickness=1, relief=tk.SUNKEN)
+        self.classifier_plot_canvas = Canvas(self.classifier_display_frame, width=600, height=300, bg="white", highlightthickness=1, relief=tk.SUNKEN)
         self.classifier_plot_canvas.grid(row=0, column=0, padx=10, pady=5)
-
         blank_img = Image.new("RGB", (300, 300), "#E5E5E5") 
         self.selected_image_tk = ImageTk.PhotoImage(blank_img)
         self.selected_image_label = Label(self.classifier_display_frame, bg="gray90", relief=tk.SUNKEN, image=self.selected_image_tk)
         self.selected_image_label.grid(row=0, column=1, padx=10, pady=5)
 
-        self.prediction_frame = Frame(self.classification_tab)
-        self.prediction_frame.pack(fill=tk.X, padx=10, pady=5)
+        self.prediction_controls_frame = Frame(self.classification_tab)
+        self.prediction_controls_frame.pack(pady=10)
+        self.prediction_controls_inner = Frame(self.prediction_controls_frame)
+        self.prediction_controls_inner.pack(anchor='center')
 
-        self.select_file_button = Button(self.prediction_frame, text="Select File")
+        self.select_file_button = Button(self.prediction_controls_inner, text="Select File")
         self.select_file_button.pack(side=tk.LEFT, padx=5)
-
-        self.selected_file_label = Label(self.prediction_frame, text="No file selected")
+        self.selected_file_label = Label(self.prediction_controls_inner, text="No file selected")
         self.selected_file_label.pack(side=tk.LEFT, padx=5)
-
-        self.predict_button = Button(self.prediction_frame, text="Predict")
+        self.predict_button = Button(self.prediction_controls_inner, text="Predict")
         self.predict_button.pack(side=tk.LEFT, padx=5)
 
         self.classifier_console = Text(self.classification_tab, height=8, wrap=tk.WORD, state=tk.DISABLED)
         self.classifier_console.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-
-        
 
     def _layout_widgets(self):
         self.top_pane.pack(fill=tk.BOTH, expand=True)
@@ -282,10 +309,11 @@ class View(tk.Tk):
             self.selected_image_label.config(text="Failed to load image", image="")
 
     def update_training_plot(self, pil_image):
-        pil_image = pil_image.resize((300, 300), Image.Resampling.LANCZOS)
+        pil_image = pil_image.resize((600, 300), Image.Resampling.LANCZOS)
         self.classifier_plot_img = ImageTk.PhotoImage(pil_image)
         self.classifier_plot_canvas.delete("all")
-        self.classifier_plot_canvas.create_image(150, 150, anchor='center', image=self.classifier_plot_img)
+        self.classifier_plot_canvas.create_image(300, 150, anchor='center', image=self.classifier_plot_img)
+        self.after(0, self.update())
 
     def update_classifier_console(self, message):
         self.classifier_console.config(state=tk.NORMAL)
