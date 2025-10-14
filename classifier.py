@@ -1,19 +1,19 @@
 import tensorflow as tf
 from keras._tf_keras.keras.models import Sequential
-from keras._tf_keras.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, RandomFlip, RandomRotation, RandomContrast, RandomTranslation, RandomZoom, Rescaling, BatchNormalization
+from keras._tf_keras.keras.layers import Flatten, Dense, Dropout, RandomFlip, RandomRotation, RandomContrast, RandomTranslation, RandomZoom
 from keras._tf_keras.keras.utils import image_dataset_from_directory
-from keras._tf_keras.keras.regularizers import l2
 from keras._tf_keras.keras.callbacks import ReduceLROnPlateau, EarlyStopping
+from keras._tf_keras.keras.applications import VGG16
 
 
-def train_model(epochs=200, batch_size=8, learning_rate=0.001, plot_callback=None, stop_callback=None):
+def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None, stop_callback=None):
     data_dir = 'images/'
-    img_height = 256
-    img_width = 256
+    img_height = 224
+    img_width = 224
     early_stopping = EarlyStopping(
         monitor='val_loss', patience=15, restore_best_weights=True)
     reduce_lr = ReduceLROnPlateau(
-        monitor='val_loss', factor=0.2, patience=5, min_lr=0.0001)
+        monitor='val_loss', factor=0.2, patience=5, min_lr=1e-7)
 
     train_ds = image_dataset_from_directory(
         data_dir,
@@ -37,11 +37,18 @@ def train_model(epochs=200, batch_size=8, learning_rate=0.001, plot_callback=Non
 
     val_ds = val_test_ds.take(len(val_test_ds) // 2)
     test_ds = val_test_ds.skip(len(val_test_ds) // 2)
-    
+
     class_names = train_ds.class_names
     num_classes = len(class_names)
     print("Class names:", class_names)
     print(f"Found {num_classes} classes.")
+
+    preprocess_input = tf.keras.applications.vgg16.preprocess_input
+
+    train_ds = train_ds.map(lambda x, y: (preprocess_input(x), y), num_parallel_calls=tf.data.AUTOTUNE).prefetch(buffer_size=tf.data.AUTOTUNE)
+    val_ds = val_ds.map(lambda x, y: (preprocess_input(x), y), num_parallel_calls=tf.data.AUTOTUNE).prefetch(buffer_size=tf.data.AUTOTUNE)
+    test_ds = test_ds.map(lambda x, y: (preprocess_input(x), y), num_parallel_calls=tf.data.AUTOTUNE).prefetch(buffer_size=tf.data.AUTOTUNE)
+
 
     data_augmentation = Sequential(
         [
@@ -49,25 +56,25 @@ def train_model(epochs=200, batch_size=8, learning_rate=0.001, plot_callback=Non
                        input_shape=(img_height, img_width, 3)),
             RandomRotation(0.2),
             RandomZoom(0.2),
-            RandomTranslation(height_factor=0.1, width_factor=0.1),
-            RandomContrast(0.2)
-
         ],
         name="data_augmentation"
     )
 
+    base_model = VGG16(input_shape=(img_height, img_width, 3),
+                                         include_top=False,
+                                         weights='imagenet')
+
+    base_model.trainable = False
+
     model = Sequential([
         data_augmentation,
-        Rescaling(1./255),
-        Conv2D(32, (3, 3), padding='same', activation='relu', kernel_regularizer=l2(0.005)),
-        MaxPooling2D(),
-        Conv2D(64, (3, 3), padding='same', activation='relu', kernel_regularizer=l2(0.005)),
-        MaxPooling2D(),
+        base_model,
         Flatten(),
-        Dense(128, activation='relu'),
+        Dense(256, activation='relu'),
         Dropout(0.5),
         Dense(num_classes, activation='softmax')
     ])
+    
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
     model.compile(optimizer=optimizer,
                   loss='categorical_crossentropy',
@@ -105,8 +112,8 @@ def train_model(epochs=200, batch_size=8, learning_rate=0.001, plot_callback=Non
     print(f"Test Loss: {test_loss:.4f}")
 
     print("\n--- Saving the model ---")
-    model.save('image_classifier_model.h5')
-    print("Model saved successfully as image_classifier_model.h5")
+    model.save('image_classifier_model_vgg16.h5')
+    print("Model saved successfully as image_classifier_model_vgg16.h5")
 
     return history
 
