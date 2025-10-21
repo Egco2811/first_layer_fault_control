@@ -89,8 +89,9 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
             self.stop_callback = stop_callback
 
         def on_epoch_end(self, epoch, logs=None):
+            message = f"Epoch {epoch+1}: loss={logs['loss']:.4f}, accuracy={logs['accuracy']:.4f}, val_loss={logs['val_loss']:.4f}, val_accuracy={logs['val_accuracy']:.4f}"
             if self.plot_callback:
-                self.plot_callback(epoch, logs)
+                self.plot_callback(epoch, logs, message)
 
             if self.stop_callback and self.stop_callback():
                 print("Early stopping requested by user. Saving model...")

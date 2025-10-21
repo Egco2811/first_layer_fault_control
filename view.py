@@ -324,34 +324,45 @@ class View(tk.Tk):
             self.selected_image_label.config(text="Failed to load image", image="")
 
     def reset_plot_data(self):
-        self.acc_data.clear()
-        self.val_acc_data.clear()
-        self.loss_data.clear()
-        self.val_loss_data.clear()
+        if len(self.acc_data) > 0:
+            self.acc_data = []
+            self.val_acc_data = []
+            self.loss_data = []
+            self.val_loss_data = []
+            self.ax_acc.clear()
+            self.ax_loss.clear()
+            self.classifier_plot_canvas.draw()
 
-    def update_training_plot(self, epoch, logs):
-        self.acc_data.append(logs.get('accuracy'))
-        self.val_acc_data.append(logs.get('val_accuracy'))
-        self.loss_data.append(logs.get('loss'))
-        self.val_loss_data.append(logs.get('val_loss'))
+    def update_training_plot(self, epoch, logs, message=None):
+        self.acc_data.append(logs.get('accuracy', 0))
+        self.val_acc_data.append(logs.get('val_accuracy', 0))
+        self.loss_data.append(logs.get('loss', 0))
+        self.val_loss_data.append(logs.get('val_loss', 0))
 
-        epochs_range = range(epoch + 1)
+        epochs_range = range(len(self.acc_data))
 
-        self.ax_acc.cla()
-        self.ax_acc.plot(epochs_range, self.acc_data, label='Training Accuracy')
-        self.ax_acc.plot(epochs_range, self.val_acc_data, label='Validation Accuracy')
-        self.ax_acc.legend(loc='lower right', fontsize='small')
-        self.ax_acc.set_title('Accuracy', fontsize='medium')
-        self.ax_acc.set_xlabel('Epoch', fontsize='small')
-        self.ax_acc.set_ylabel('Accuracy', fontsize='small')
+        self.ax_acc.clear()
+        self.ax_loss.clear()
 
-        self.ax_loss.cla()
-        self.ax_loss.plot(epochs_range, self.loss_data, label='Training Loss')
-        self.ax_loss.plot(epochs_range, self.val_loss_data, label='Validation Loss')
-        self.ax_loss.legend(loc='upper right', fontsize='small')
-        self.ax_loss.set_title('Loss', fontsize='medium')
-        self.ax_loss.set_xlabel('Epoch', fontsize='small')
-        self.ax_loss.set_ylabel('Loss', fontsize='small')
+        self.ax_acc.plot(epochs_range, self.acc_data, 'b-', label='Training')
+        self.ax_acc.plot(epochs_range, self.val_acc_data, 'r-', label='Validation')
+        self.ax_acc.set_title('Model Accuracy')
+        self.ax_acc.set_xlabel('Epoch')
+        self.ax_acc.set_ylabel('Accuracy')
+        self.ax_acc.set_ylim(0, 1.1)
+        self.ax_acc.legend(loc='lower right')
+        self.ax_acc.grid(True)
+
+        self.ax_loss.plot(epochs_range, self.loss_data, 'b-', label='Training')
+        self.ax_loss.plot(epochs_range, self.val_loss_data, 'r-', label='Validation')
+        self.ax_loss.set_title('Model Loss')
+        self.ax_loss.set_xlabel('Epoch')
+        self.ax_loss.set_ylabel('Loss')
+        self.ax_loss.legend(loc='upper right')
+        self.ax_loss.grid(True)
+
+        if message:
+            self.update_classifier_console(message)
 
         self.classifier_plot_canvas.draw()
         self.update_idletasks()
