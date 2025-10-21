@@ -418,9 +418,10 @@ class Controller:
             batch_size = self.view.batch_size_var.get()
             learning_rate = self.view.lr_var.get()
         except Exception as e:
-            self.view.show_error("Configuration Error", f"Could not read training parameters from UI: {e}")
+            self.view.show_error(
+                "Configuration Error", f"Could not read training parameters from UI: {e}")
             return
-        
+
         self.view.reset_plot_data()
         self._stop_training_flag.clear()
         self.view.stop_training_button.config(state='normal')
@@ -428,8 +429,9 @@ class Controller:
             f"Starting network training with {epochs} epochs, batch size {batch_size}, and learning rate {learning_rate}..."
         )
 
-        def plot_callback(epoch, logs):
-            self.view.after(0, self.view.update_training_plot, epoch, logs)
+        def plot_callback(epoch, logs, message=None):
+            if self.view:
+                self.view.after(0, self.view.update_training_plot, epoch, logs, message)
 
         def stop_callback():
             return self._stop_training_flag.is_set()
@@ -446,14 +448,17 @@ class Controller:
                 if not self._stop_training_flag.is_set():
                     final_acc = history.history.get('accuracy', [None])[-1]
                     message = f"Training completed. Final accuracy: {final_acc:.2f}" if final_acc else "Training completed successfully."
-                    self.view.after(0, self.view.update_classifier_console, message)
+                    self.view.after(
+                        0, self.view.update_classifier_console, message)
             except Exception as e:
                 import traceback
                 print(traceback.format_exc())
                 error_message = f"Training failed: {e}"
-                self.view.after(0, self.view.update_classifier_console, error_message)
+                self.view.after(
+                    0, self.view.update_classifier_console, error_message)
             finally:
-                self.view.after(0, lambda: self.view.stop_training_button.config(state='disabled'))
+                self.view.after(
+                    0, lambda: self.view.stop_training_button.config(state='disabled'))
 
         threading.Thread(target=training_task, daemon=True).start()
 
