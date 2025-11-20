@@ -37,6 +37,12 @@ class Controller:
         self.webcam_running = False
         self._stop_training_flag = threading.Event()
         self.executor = ThreadPoolExecutor(max_workers=2)
+        
+        if self.predictor.is_ready():
+            self.view.update_classifier_console("System Ready: Model loaded.")
+        else:
+            self.view.update_classifier_console("System Ready: No valid model found. Please Train.")
+            
         self.start_webcam_stream()
 
     def _run_task(self, target_func, *args):
@@ -96,14 +102,12 @@ class Controller:
         if not self.model.has_image():
             self.view.after(0, lambda: self.view.show_error("Action Denied", "Please capture an image first."))
             return
-
         self.view.after(0, lambda: self.view.update_status(f"Applying '{step_name}'..."))
         try:
             sigma = self.view.canny_sigma_var.get()
             debug_mode = self.view.debug_mode_var.get()
             processed_image = self.model.process_image_step(step_name, sigma, debug_mode)
             self.view.after(0, lambda: self.view.update_image_display(processed_image))
-
             if step_name == 'Crop to Shape':
                 self.view.after(0, lambda: self.view.update_status(f"Applied '{step_name}'. Ready to save."))
                 self.view.after(0, lambda: self.view.set_ui_state('PROCESSED'))
@@ -130,7 +134,6 @@ class Controller:
         if not self.model.has_image():
             self.view.after(0, lambda: self.view.show_error("Action Denied", "Please capture an image first."))
             return
-
         self.view.after(0, lambda: self.view.set_ui_state('BUSY'))
         self.view.after(0, lambda: self.view.update_status("Running full pipeline..."))
         try:
@@ -155,7 +158,6 @@ class Controller:
         if not self.model.has_image():
             self.view.after(0, lambda: self.view.show_error("Action Denied", "Please capture an image first."))
             return
-
         self.view.after(0, lambda: self.view.update_status("Saving image..."))
         classification = self.view.classification_var.get()
         save_path = self.model.save_image(classification)
@@ -183,7 +185,6 @@ class Controller:
                 self.view.after(0, lambda: self.view.update_status("[Auto] Starting print..."))
                 self.model.start_print()
                 print_succeeded = False
-                
                 for state, message in self.model.poll_print_progress():
                     if not self.autonomous_running: break
                     self.view.after(0, lambda m=message: self.view.update_status(f"[Auto] {m}"))
@@ -192,33 +193,22 @@ class Controller:
                         break
                     elif state in ["error", "cancelled"]:
                         break
-                
                 if not self.autonomous_running or not print_succeeded:
-                    if print_succeeded:
-                        self.view.after(0, lambda: self.view.update_status("[Auto] Cancelled by user."))
-                    else:
-                        self.view.after(0, lambda: self.view.update_status("[Auto] Print failed."))
                     break
-                
                 time.sleep(5)
                 self.view.after(0, lambda: self.view.update_status("[Auto] Capturing image..."))
                 self.model.capture_and_load_image(UNPROCESSED_IMAGE_FILE)
-
                 final_pil_image = None
-                
                 try:
                     user_sigma = self.view.canny_sigma_var.get()
                     debug_mode = self.view.debug_mode_var.get()
                     final_pil_image, _, _ = self.model.run_full_pipeline_with_retry(user_sigma, debug_mode)
                 except RuntimeError:
                     self.autonomous_running = False
-                    self.view.after(0, lambda: self.view.show_error("Auto Error", "Failed to find shape in image."))
                     break
-
                 self.view.after(0, lambda: self.view.update_image_display(final_pil_image))
                 self.model.save_temp_image(TEMP_IMAGE_FILE)
                 self.model.send_telegram_notification(TEMP_IMAGE_FILE, caption="[Auto] Please review.")
-
                 acceptance = self.view.ask_accept_fallback_reject("Review", "Accept image?")
                 if acceptance is True:
                     cls = self.view.classification_var.get()
@@ -228,18 +218,14 @@ class Controller:
                     self.model.crop_with_fallback()
                     cls = self.view.classification_var.get()
                     self.model.save_image(cls)
-
                 if os.path.exists(TEMP_IMAGE_FILE):
                     os.remove(TEMP_IMAGE_FILE)
-
                 self.view.after(0, lambda: self.view.update_status("[Auto] Clean build plate."))
                 if not self.view.ask_ok_cancel("Autonomous", "Press OK to continue."):
                     self.autonomous_running = False
-
             except Exception as e:
                 self.view.after(0, lambda: self.view.show_error("Autonomous Error", str(e)))
                 self.autonomous_running = False
-
         self.autonomous_running = False
         self.view.after(0, lambda: self.view.set_ui_state('IDLE'))
 
@@ -267,7 +253,6 @@ class Controller:
 
     def _webcam_loop(self):
         stream_url = self.model.get_webcam_stream_url()
-        
         with StderrSuppressor():
             cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
             while self.webcam_running:
@@ -324,18 +309,22 @@ class Controller:
             try:
                 model, test_ds, classes = train_model(epochs, batch_size, lr, plot_callback, stop_callback)
                 
-                self.view.after(0, lambda: self.view.update_classifier_console("Generating Confusion Matrix..."))
-                cm, acc, loss = generate_confusion_matrix_data(model, test_ds)
-                self.view.after(0, lambda: self.view.show_analysis_results(cm, classes, acc, loss))
-                
-                self.view.after(0, lambda: self.view.update_classifier_console("Reloading resources..."))
+                self.view.after(0, lambda: self.view.update_classifier_console("Training done. Reloading predictor..."))
                 self.predictor.reload()
                 
-                self.view.after(0, self.view.update_classifier_console, f"Done. Test Acc: {acc*100:.2f}%")
+                self.view.after(0, lambda: self.view.show_info("Analysis Running", 
+                    "Training completed successfully.\n\nGenerating Confusion Matrix and Analysis.\nThis may take a few moments..."))
+
+                self.view.after(0, lambda: self.view.update_classifier_console("Generating Confusion Matrix (this takes time)..."))
+                cm, acc, loss = generate_confusion_matrix_data(model, test_ds)
+                
+                self.view.after(0, lambda: self.view.show_analysis_results(cm, classes, acc, loss))
+                self.view.after(0, self.view.update_classifier_console, f"Analysis Complete. Test Acc: {acc*100:.2f}%")
+                
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                self.view.after(0, self.view.update_classifier_console, f"Error: {e}")
+                self.view.after(0, self.view.update_classifier_console, f"Analysis Error: {e}")
             finally:
                 self.view.after(0, lambda: self.view.btn_stop_train.config(state='disabled'))
                 self.view.after(0, lambda: self.view.btn_train.config(state='normal'))

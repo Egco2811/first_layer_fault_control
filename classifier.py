@@ -14,7 +14,7 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
     data_dir = pathlib.Path('images/')
     img_height = 224
     img_width = 224
-    model_save_path = 'image_classifier_model_vgg19.h5'
+    model_save_path = 'image_classifier_model_vgg19.keras'
     classes_save_path = 'class_names.json'
 
     early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
@@ -42,13 +42,11 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
 
     def create_dataset(paths, labels):
         path_ds = tf.data.Dataset.from_tensor_slices(paths)
-        
         def load_image(path):
             image = tf.io.read_file(path)
             image = tf.image.decode_jpeg(image, channels=3)
             image = tf.image.resize(image, [img_height, img_width])
             return image
-
         image_ds = path_ds.map(load_image, num_parallel_calls=tf.data.AUTOTUNE)
         label_ds = tf.data.Dataset.from_tensor_slices(tf.keras.utils.to_categorical(labels, num_classes=len(class_names)))
         return tf.data.Dataset.zip((image_ds, label_ds))
@@ -60,7 +58,6 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
     train_ds = train_ds.batch(batch_size).prefetch(buffer_size=tf.data.AUTOTUNE)
     val_ds = val_ds.batch(batch_size).prefetch(buffer_size=tf.data.AUTOTUNE)
     test_ds = test_ds.batch(batch_size).prefetch(buffer_size=tf.data.AUTOTUNE)
-
 
     data_augmentation = Sequential([
         RandomFlip("horizontal_and_vertical"),
@@ -74,16 +71,13 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
     base_model.trainable = False
 
     inputs = Input(shape=(img_height, img_width, 3))
-    
     x = data_augmentation(inputs)
-    
-    x = Lambda(preprocess_input)(x)
-    
+    x = Lambda(preprocess_input)(x) 
     x = base_model(x, training=False)
     
     x = Flatten()(x)
     x = Dense(256, activation='relu', kernel_regularizer=l2(0.01))(x)
-    x = Dropout(0.6)(x) 
+    x = Dropout(0.6)(x)
     outputs = Dense(len(class_names), activation='softmax')(x)
 
     model = tf.keras.Model(inputs, outputs)
@@ -104,7 +98,7 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
             if self.stop_callback and self.stop_callback():
                 self.model.stop_training = True
 
-    print("Starting training with aggressive augmentation...")
+    print("Starting training VGG19...")
     model.fit(
         train_ds,
         validation_data=val_ds,
@@ -112,20 +106,18 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
         callbacks=[LivePlotCallback(plot_callback, stop_callback), early_stopping, reduce_lr]
     )
 
+    print(f"Saving model to {model_save_path}...")
     model.save(model_save_path)
     return model, test_ds, class_names
 
 def generate_confusion_matrix_data(model, test_ds):
     y_true = []
     y_pred = []
-    
     for images, labels in test_ds:
         y_true.extend(np.argmax(labels.numpy(), axis=1))
-        
         predictions = model.predict(images, verbose=0)
         y_pred.extend(np.argmax(predictions, axis=1))
     
     cm = confusion_matrix(y_true, y_pred)
     test_loss, test_acc = model.evaluate(test_ds, verbose=0)
-    
     return cm, test_acc, test_loss

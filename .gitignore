@@ -188,3 +188,4 @@ cython_debug/
 *.json
 *.exe
 *.h5
+*.keras
