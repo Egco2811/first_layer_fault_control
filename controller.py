@@ -66,6 +66,10 @@ class Controller:
         self.view.after(0, lambda: self.view.set_ui_state('BUSY'))
         self.view.after(0, lambda: self.view.update_status("Starting print..."))
         try:
+            if not self.model.wait_for_ready():
+                 self.view.after(0, lambda: self.view.update_status("Printer not ready/connected."))
+                 return
+
             self.model.start_print()
             print_succeeded = False
             for state, message in self.model.poll_print_progress():
@@ -165,12 +169,38 @@ class Controller:
         self.view.after(0, lambda: self.view.show_info("Success", f"Saved to {save_path}"))
         self.view.after(0, lambda: self.view.update_status(f"Saved to '{classification}'."))
 
+    def predict_current_pipeline_image(self):
+        self._run_task(self._predict_current_task)
+
+    def _predict_current_task(self):
+        if not self.model.processed_image is not None:
+            self.view.after(0, lambda: self.view.show_error("Error", "No processed image found. Run pipeline first."))
+            return
+        
+        if not self.predictor.is_ready():
+            self.view.after(0, lambda: self.view.show_error("Error", "Predictor not ready. Train or restart."))
+            return
+
+        try:
+            self.model.save_temp_image(TEMP_IMAGE_FILE)
+            pred_class, confidence = self.predictor.predict(TEMP_IMAGE_FILE)
+            self.view.after(0, lambda: self.view.update_classifier_console(f"Current Image: {pred_class} ({confidence:.2f}%)"))
+            self.view.after(0, lambda: self.view.show_info("Prediction Result", f"Class: {pred_class}\nConfidence: {confidence:.2f}%"))
+        except Exception as e:
+            self.view.after(0, lambda: self.view.show_error("Prediction Error", str(e)))
+        finally:
+            if os.path.exists(TEMP_IMAGE_FILE):
+                os.remove(TEMP_IMAGE_FILE)
+
     def on_sigma_change(self, value):
         self.model.invalidate_sigma_dependent_cache()
         self.view.update_status(f"Sigma set to {float(value):.2f}. Cache cleared.")
 
     def toggle_autonomous_mode(self):
         if not self.autonomous_running:
+            if not self.predictor.is_ready():
+                self.view.show_error("Error", "Cannot start Auto Mode: Model not loaded.")
+                return
             self.autonomous_running = True
             self.view.set_ui_state('AUTONOMOUS')
             threading.Thread(target=self.autonomous_loop, daemon=True).start()
@@ -180,54 +210,153 @@ class Controller:
             self._run_task(self.model.cancel_print)
 
     def autonomous_loop(self):
+        current_step_size = Config.CALIBRATION_START_STEP
+        previous_state = None
+        all_classes = ["high", "ideal", "low"]
+        
         while self.autonomous_running:
             try:
-                self.view.after(0, lambda: self.view.update_status("[Auto] Starting print..."))
-                self.model.start_print()
-                print_succeeded = False
-                for state, message in self.model.poll_print_progress():
-                    if not self.autonomous_running: break
-                    self.view.after(0, lambda m=message: self.view.update_status(f"[Auto] {m}"))
-                    if state == "complete":
-                        print_succeeded = True
+                if not self.model.wait_for_ready():
+                    self.view.after(0, lambda: self.view.update_status("[Auto] Printer not ready. Retrying..."))
+                    self.model.restart_firmware()
+                    time.sleep(10)
+                    if not self.model.wait_for_ready():
+                         self.view.after(0, lambda: self.view.show_error("Auto Error", "Printer is not responding (Shutdown/Error)."))
+                         self.autonomous_running = False
+                         break
+
+                print_success = False
+                retries = 0
+                
+                while retries < Config.MAX_PRINT_RETRIES and self.autonomous_running:
+                    self.view.after(0, lambda: self.view.update_status(f"[Auto] Starting print (Attempt {retries+1})..."))
+                    
+                    self.model.start_print()
+                    
+                    time.sleep(2)
+                    
+                    error_occurred = False
+                    for state, message in self.model.poll_print_progress():
+                        if not self.autonomous_running: break
+                        self.view.after(0, lambda m=message: self.view.update_status(f"[Auto] {m}"))
+                        
+                        if state == "complete":
+                            print_success = True
+                            break
+                        elif state in ["error", "cancelled", "shutdown"]:
+                            error_occurred = True
+                            break
+                    
+                    if print_success:
                         break
-                    elif state in ["error", "cancelled"]:
+                    
+                    if error_occurred and self.autonomous_running:
+                        self.view.after(0, lambda: self.view.update_status("[Auto] Print Error/Shutdown. Restarting Firmware..."))
+                        self.model.restart_firmware()
+                        time.sleep(10)
+                        
+                        if not self.model.wait_for_ready():
+                            self.view.after(0, lambda: self.view.update_status("[Auto] Printer failed to recover."))
+                            break
+
+                        self.view.after(0, lambda: self.view.update_status("[Auto] Homing..."))
+                        self.model.auto_home()
+                        
+                        self.view.after(0, lambda: self.view.update_status("[Auto] Waiting for moves..."))
+                        self.model.force_still()
+                        retries += 1
+                    else:
                         break
-                if not self.autonomous_running or not print_succeeded:
+
+                if not print_success or not self.autonomous_running:
+                    self.view.after(0, lambda: self.view.update_status("[Auto] Failed to complete print after retries."))
                     break
-                time.sleep(5)
+
+                self.view.after(0, lambda: self.view.update_status("[Auto] Ensuring stillness..."))
+                self.model.force_still()
+
                 self.view.after(0, lambda: self.view.update_status("[Auto] Capturing image..."))
                 self.model.capture_and_load_image(UNPROCESSED_IMAGE_FILE)
-                final_pil_image = None
+                
+                user_sigma = self.view.canny_sigma_var.get()
+                debug_mode = self.view.debug_mode_var.get()
                 try:
-                    user_sigma = self.view.canny_sigma_var.get()
-                    debug_mode = self.view.debug_mode_var.get()
-                    final_pil_image, _, _ = self.model.run_full_pipeline_with_retry(user_sigma, debug_mode)
+                    final_pil, _, _ = self.model.run_full_pipeline_with_retry(user_sigma, debug_mode)
+                    self.view.after(0, lambda: self.view.update_image_display(final_pil))
+                    self.model.save_temp_image(TEMP_IMAGE_FILE)
                 except RuntimeError:
+                    self.view.after(0, lambda: self.view.show_error("Auto Error", "Could not detect shape."))
+                    break
+                
+                pred_class, confidence = self.predictor.predict(TEMP_IMAGE_FILE)
+                self.view.after(0, lambda: self.view.update_classifier_console(f"[Auto] Predicted: {pred_class} ({confidence:.2f}%)"))
+                self.model.send_telegram_notification(TEMP_IMAGE_FILE, caption=f"[Auto] {pred_class} ({confidence:.2f}%)")
+                
+                user_decision = self.view.ask_prediction_confirmation(
+                    "Prediction Review", 
+                    f"Model predicted: {pred_class.upper()} ({confidence:.2f}%)\n\nConfirm prediction or select override:",
+                    pred_class, 
+                    all_classes
+                )
+                
+                if user_decision is None:
+                    self.view.after(0, lambda: self.view.update_status("[Auto] Cancelled by user."))
                     self.autonomous_running = False
                     break
-                self.view.after(0, lambda: self.view.update_image_display(final_pil_image))
-                self.model.save_temp_image(TEMP_IMAGE_FILE)
-                self.model.send_telegram_notification(TEMP_IMAGE_FILE, caption="[Auto] Please review.")
-                acceptance = self.view.ask_accept_fallback_reject("Review", "Accept image?")
-                if acceptance is True:
-                    cls = self.view.classification_var.get()
-                    self.model.save_image(cls)
-                    self.model.commit_last_found_corners()
-                elif acceptance is False:
-                    self.model.crop_with_fallback()
-                    cls = self.view.classification_var.get()
-                    self.model.save_image(cls)
+                    
+                pred_class = user_decision
+                self.view.after(0, lambda: self.view.update_status(f"[Auto] Accepted class: {pred_class}. Saving data..."))
+                
+                self.model.save_image(pred_class)
+                self.model.commit_last_found_corners()
+
+                if pred_class == "ideal":
+                    self.view.after(0, lambda: self.view.show_info("Calibration Complete", "Ideal Z-Offset found!\nSaving to config."))
+                    self.view.after(0, lambda: self.view.update_status("[Auto] Ideal State Reached. Saving Config..."))
+                    self.model.save_permanent_config()
+                    self.autonomous_running = False
+                    break
+                
+                elif pred_class in ["high", "low"]:
+                    adjustment = 0.0
+                    
+                    if previous_state and previous_state != pred_class:
+                        current_step_size /= 2
+                        self.view.after(0, lambda: self.view.update_classifier_console(f"[Auto] Overshoot detected. Reducing step to {current_step_size:.4f}"))
+
+                    if current_step_size < Config.CALIBRATION_MIN_STEP:
+                        self.view.after(0, lambda: self.view.show_info("Calibration Done", "Step size too small. Stopping at best guess."))
+                        self.autonomous_running = False
+                        break
+
+                    if pred_class == "high":
+                        adjustment = -current_step_size
+                    elif pred_class == "low":
+                        adjustment = current_step_size
+                    
+                    self.view.after(0, lambda: self.view.update_status(f"[Auto] Adjusting Z by {adjustment:.4f}mm..."))
+                    self.model.adjust_z_offset(adjustment)
+                    previous_state = pred_class
+                
+                else:
+                    self.view.after(0, lambda: self.view.update_status(f"[Auto] Unknown class '{pred_class}'. Stopping."))
+                    break
+
+                if self.autonomous_running:
+                    self.view.after(0, lambda: self.view.update_status("[Auto] Waiting for cleanup..."))
+                    if not self.view.ask_ok_cancel("Auto Calibration", f"Result: {pred_class}\nZ-Offset adjusted.\n\nPlease clean the build plate and press OK to continue."):
+                        self.autonomous_running = False
+
                 if os.path.exists(TEMP_IMAGE_FILE):
                     os.remove(TEMP_IMAGE_FILE)
-                self.view.after(0, lambda: self.view.update_status("[Auto] Clean build plate."))
-                if not self.view.ask_ok_cancel("Autonomous", "Press OK to continue."):
-                    self.autonomous_running = False
+
             except Exception as e:
                 self.view.after(0, lambda: self.view.show_error("Autonomous Error", str(e)))
                 self.autonomous_running = False
+
         self.autonomous_running = False
         self.view.after(0, lambda: self.view.set_ui_state('IDLE'))
+        self.view.after(0, lambda: self.view.update_status("[Auto] Stopped."))
 
     def adjust_z(self, amount):
         self._run_task(self.model.adjust_z_offset, amount)
