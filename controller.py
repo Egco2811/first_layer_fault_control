@@ -169,6 +169,29 @@ class Controller:
         self.view.after(0, lambda: self.view.show_info("Success", f"Saved to {save_path}"))
         self.view.after(0, lambda: self.view.update_status(f"Saved to '{classification}'."))
 
+    def predict_current_pipeline_image(self):
+        self._run_task(self._predict_current_task)
+
+    def _predict_current_task(self):
+        if not self.model.processed_image is not None:
+            self.view.after(0, lambda: self.view.show_error("Error", "No processed image found. Run pipeline first."))
+            return
+        
+        if not self.predictor.is_ready():
+            self.view.after(0, lambda: self.view.show_error("Error", "Predictor not ready. Train or restart."))
+            return
+
+        try:
+            self.model.save_temp_image(TEMP_IMAGE_FILE)
+            pred_class, confidence = self.predictor.predict(TEMP_IMAGE_FILE)
+            self.view.after(0, lambda: self.view.update_classifier_console(f"Current Image: {pred_class} ({confidence:.2f}%)"))
+            self.view.after(0, lambda: self.view.show_info("Prediction Result", f"Class: {pred_class}\nConfidence: {confidence:.2f}%"))
+        except Exception as e:
+            self.view.after(0, lambda: self.view.show_error("Prediction Error", str(e)))
+        finally:
+            if os.path.exists(TEMP_IMAGE_FILE):
+                os.remove(TEMP_IMAGE_FILE)
+
     def on_sigma_change(self, value):
         self.model.invalidate_sigma_dependent_cache()
         self.view.update_status(f"Sigma set to {float(value):.2f}. Cache cleared.")
@@ -189,6 +212,7 @@ class Controller:
     def autonomous_loop(self):
         current_step_size = Config.CALIBRATION_START_STEP
         previous_state = None
+        all_classes = ["high", "ideal", "low"]
         
         while self.autonomous_running:
             try:
@@ -265,8 +289,26 @@ class Controller:
                     break
                 
                 pred_class, confidence = self.predictor.predict(TEMP_IMAGE_FILE)
-                self.view.after(0, lambda: self.view.update_classifier_console(f"[Auto] Result: {pred_class} ({confidence:.2f}%)"))
+                self.view.after(0, lambda: self.view.update_classifier_console(f"[Auto] Predicted: {pred_class} ({confidence:.2f}%)"))
                 self.model.send_telegram_notification(TEMP_IMAGE_FILE, caption=f"[Auto] {pred_class} ({confidence:.2f}%)")
+                
+                user_decision = self.view.ask_prediction_confirmation(
+                    "Prediction Review", 
+                    f"Model predicted: {pred_class.upper()} ({confidence:.2f}%)\n\nConfirm prediction or select override:",
+                    pred_class, 
+                    all_classes
+                )
+                
+                if user_decision is None:
+                    self.view.after(0, lambda: self.view.update_status("[Auto] Cancelled by user."))
+                    self.autonomous_running = False
+                    break
+                    
+                pred_class = user_decision
+                self.view.after(0, lambda: self.view.update_status(f"[Auto] Accepted class: {pred_class}. Saving data..."))
+                
+                self.model.save_image(pred_class)
+                self.model.commit_last_found_corners()
 
                 if pred_class == "ideal":
                     self.view.after(0, lambda: self.view.show_info("Calibration Complete", "Ideal Z-Offset found!\nSaving to config."))

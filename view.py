@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog, Canvas
+from tkinter import ttk, messagebox, filedialog, Canvas, Toplevel
 from PIL import Image, ImageTk
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -67,6 +67,7 @@ class View(tk.Tk):
         self.btn_capture.config(command=self.controller.capture_and_display_image)
         self.btn_save.config(command=self.controller.save_final_image)
         self.btn_pipeline.config(command=self.controller.process_to_final)
+        self.btn_predict_current.config(command=self.controller.predict_current_pipeline_image)
         self.sigma_scale.config(command=self.controller.on_sigma_change)
         for step, btn in self.view_buttons.items():
             btn.config(command=lambda s=step: self.controller.view_step(s))
@@ -160,6 +161,8 @@ class View(tk.Tk):
         ttk.Separator(lf, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
         self.btn_pipeline = ttk.Button(lf, text="✨ Full Pipeline", style="Action.TButton")
         self.btn_pipeline.pack(fill=tk.X, padx=5, pady=5)
+        self.btn_predict_current = ttk.Button(lf, text="🔍 Predict Current", style="Action.TButton")
+        self.btn_predict_current.pack(fill=tk.X, padx=5, pady=2)
         
         lf_s = ttk.LabelFrame(parent, text="Labeling")
         lf_s.pack(fill=tk.X, pady=10)
@@ -335,21 +338,21 @@ class View(tk.Tk):
     def set_ui_state(self, state):
         
         view_btns = list(self.view_buttons.values())
-        main_controls = [self.btn_print, self.btn_capture, self.btn_auto, self.btn_pipeline, self.btn_save, self.classification_dropdown]
+        main_controls = [self.btn_print, self.btn_capture, self.btn_auto, self.btn_pipeline, self.btn_save, self.classification_dropdown, self.btn_predict_current]
         all_btns = main_controls + view_btns
         
         disabled_all = ['disabled'] * len(all_btns)
         
         if state == 'IDLE':
-            states = ['normal', 'normal', 'normal', 'disabled', 'disabled', 'normal'] + ['disabled'] * len(view_btns)
+            states = ['normal', 'normal', 'normal', 'disabled', 'disabled', 'normal', 'disabled'] + ['disabled'] * len(view_btns)
             auto_text = "🚀 Start Autonomous"
             
         elif state == 'CAPTURED':
-            states = ['normal', 'normal', 'normal', 'normal', 'disabled', 'normal'] + ['normal'] * len(view_btns)
+            states = ['normal', 'normal', 'normal', 'normal', 'disabled', 'normal', 'normal'] + ['normal'] * len(view_btns)
             auto_text = "🚀 Start Autonomous"
             
         elif state == 'PROCESSED':
-            states = ['normal', 'normal', 'normal', 'normal', 'normal', 'normal'] + ['normal'] * len(view_btns)
+            states = ['normal', 'normal', 'normal', 'normal', 'normal', 'normal', 'normal'] + ['normal'] * len(view_btns)
             auto_text = "🚀 Start Autonomous"
             
         elif state == 'BUSY':
@@ -357,7 +360,7 @@ class View(tk.Tk):
             auto_text = "⏳ Working..."
             
         elif state == 'AUTONOMOUS':
-            states = ['disabled', 'disabled', 'normal', 'disabled', 'disabled', 'disabled'] + ['disabled'] * len(view_btns)
+            states = ['disabled', 'disabled', 'normal', 'disabled', 'disabled', 'disabled', 'disabled'] + ['disabled'] * len(view_btns)
             auto_text = "🛑 Stop Auto"
         else:
             states = disabled_all
@@ -371,6 +374,35 @@ class View(tk.Tk):
             self.btn_auto.config(style="Danger.TButton")
         else:
             self.btn_auto.config(style="Action.TButton")
+
+    def ask_prediction_confirmation(self, title, message, predicted, options):
+        dialog = tk.Toplevel(self)
+        dialog.title(title)
+        dialog.geometry("400x250")
+        dialog.configure(bg=self.COLORS['bg_dark'])
+        dialog.grab_set()
+        
+        tk.Label(dialog, text=message, wraplength=350, bg=self.COLORS['bg_dark'], fg='white', font=("Segoe UI", 11)).pack(pady=15)
+        
+        result = [None]
+        
+        def set_res(val):
+            result[0] = val
+            dialog.destroy()
+            
+        tk.Button(dialog, text=f"Confirm {predicted.upper()}", command=lambda: set_res(predicted), 
+                  bg=self.COLORS['success'], fg='white', font=("Segoe UI", 10, "bold"), bd=1, relief="flat").pack(fill=tk.X, padx=30, pady=5)
+        
+        for opt in options:
+            if opt != predicted:
+                tk.Button(dialog, text=f"Force {opt.upper()}", command=lambda o=opt: set_res(o), 
+                          bg=self.COLORS['accent'], fg='white', font=("Segoe UI", 9), bd=1, relief="flat").pack(fill=tk.X, padx=30, pady=2)
+                
+        tk.Button(dialog, text="Cancel", command=lambda: set_res(None), 
+                  bg=self.COLORS['danger'], fg='white', font=("Segoe UI", 9), bd=1, relief="flat").pack(fill=tk.X, padx=30, pady=15)
+        
+        self.wait_window(dialog)
+        return result[0]
 
     def show_error(self, t, m): messagebox.showerror(t, m)
     def show_info(self, t, m): messagebox.showinfo(t, m)
