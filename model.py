@@ -24,6 +24,10 @@ class Model:
         self.last_found_corners = None
         self.load_last_successful_corners()
 
+    def has_image(self):
+        """Safe check if an image is currently loaded."""
+        return self.original_image is not None
+
     def _convert_cv2_to_pil(self, cv2_image):
         if cv2_image is None: return None
         if len(cv2_image.shape) == 2:
@@ -64,14 +68,14 @@ class Model:
         if capture_image(Config.PRINTER_URL, path):
             self.original_image = cv2.imread(path)
             if self.original_image is None:
-                raise ValueError("Failed to read captured image")
+                raise ValueError("Failed to read captured image from disk.")
             
             self.pipeline_cache.clear()
             self.pipeline_cache['Original'] = self.original_image.copy()
             self.processed_image = self.original_image.copy()
             self.last_found_corners = None
             return self._convert_cv2_to_pil(self.original_image)
-        raise ValueError("Capture failed")
+        raise ValueError("Failed to communicate with printer webcam.")
 
     def invalidate_sigma_dependent_cache(self):
         for step in ["Find Outer Edges", "Closed Edges", "Crop to Shape"]:
@@ -80,10 +84,13 @@ class Model:
     def _ensure_step_in_cache(self, step_name, sigma, debug_mode):
         if step_name in self.pipeline_cache: return
 
+        if self.original_image is None:
+            raise RuntimeError("No image captured. Please capture an image first.")
+
         idx = self.PIPELINE_STEPS.index(step_name)
         if idx == 0:
             if 'Original' not in self.pipeline_cache:
-                raise RuntimeError("No image captured")
+                self.pipeline_cache['Original'] = self.original_image.copy()
             return
 
         prev_name = self.PIPELINE_STEPS[idx - 1]
@@ -103,20 +110,26 @@ class Model:
             clean = self.pipeline_cache['Closed Edges']
             contour = find_target_contour(clean, debug_mode=debug_mode)
             if contour is None:
-                raise RuntimeError("Contour not found")
+                raise RuntimeError("Could not find a rectangular shape in the image.")
             self.last_found_corners = contour
             processed = crop_from_contour(self.pipeline_cache['Original'], contour)
         else:
-            raise ValueError(f"Unknown step {step_name}")
+            raise ValueError(f"Unknown processing step: {step_name}")
 
         self.pipeline_cache[step_name] = processed
 
     def process_image_step(self, target_step_name, sigma, debug_mode=False):
+        if not self.has_image():
+            raise RuntimeError("No image to process.")
+        
         self._ensure_step_in_cache(target_step_name, sigma, debug_mode)
         self.processed_image = self.pipeline_cache[target_step_name]
         return self._convert_cv2_to_pil(self.processed_image)
 
     def run_full_pipeline_with_retry(self, user_sigma, debug_mode=False):
+        if not self.has_image():
+            raise RuntimeError("No image to process.")
+
         user_sigma = round(user_sigma, 2)
         lower, upper = max(0.0, user_sigma - 0.3), min(1.0, user_sigma + 0.3)
         sigmas = [user_sigma] + [round(lower + i * 0.01, 2) for i in range(int((upper - lower) / 0.01))]
@@ -131,13 +144,15 @@ class Model:
         if self.last_successful_corners is not None:
             return self.crop_with_fallback(), user_sigma, True
         
-        raise RuntimeError("Failed to find shape and no fallback available.")
+        raise RuntimeError("Failed to find shape and no fallback parameters available.")
 
     def crop_with_fallback(self):
+        if not self.has_image():
+            raise RuntimeError("No image to process.")
         if self.last_successful_corners is None:
-            raise RuntimeError("No fallback parameters")
+            raise RuntimeError("No fallback parameters saved.")
         if 'Original' not in self.pipeline_cache:
-            raise RuntimeError("No image")
+             self.pipeline_cache['Original'] = self.original_image.copy()
         
         cropped = crop_from_contour(self.pipeline_cache['Original'], self.last_successful_corners)
         self.processed_image = cropped
@@ -148,7 +163,7 @@ class Model:
             cv2.imwrite(path, self.processed_image)
 
     def save_image(self, classification):
-        if self.processed_image is None: raise ValueError("No image")
+        if self.processed_image is None: raise ValueError("No processed image to save.")
         dir_path = os.path.join("images", classification)
         os.makedirs(dir_path, exist_ok=True)
         

@@ -35,8 +35,9 @@ class View(tk.Tk):
         self._create_data_collection_ui()
         self._create_classification_ui()
         
-        self.set_ui_state('IDLE')
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
+        
+        self.after(100, lambda: self.set_ui_state('IDLE'))
 
     def _setup_styles(self):
         style = ttk.Style(self)
@@ -181,40 +182,29 @@ class View(tk.Tk):
         self.btn_send_gcode.pack(fill=tk.X)
 
     def _create_classification_ui(self):
-
         self.class_notebook = ttk.Notebook(self.tab_classification)
         self.class_notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
         self.tab_monitor = ttk.Frame(self.class_notebook)
         self.tab_analysis = ttk.Frame(self.class_notebook)
-        
         self.class_notebook.add(self.tab_monitor, text=" Monitor ")
         self.class_notebook.add(self.tab_analysis, text=" Analysis ")
-        
-
         self._build_monitor_tab(self.tab_monitor)
-
         self._build_analysis_tab(self.tab_analysis)
 
     def _build_monitor_tab(self, parent):
         lf_conf = ttk.LabelFrame(parent, text="Config")
         lf_conf.pack(fill=tk.X, pady=5)
-        
         f_p = ttk.Frame(lf_conf)
         f_p.pack(fill=tk.X, padx=10, pady=10)
-        
         ttk.Label(f_p, text="Epochs:").pack(side=tk.LEFT)
         self.epochs_var = tk.IntVar(value=50)
         ttk.Entry(f_p, textvariable=self.epochs_var, width=5).pack(side=tk.LEFT, padx=5)
-        
         ttk.Label(f_p, text="Batch:").pack(side=tk.LEFT, padx=(15,0))
         self.batch_size_var = tk.IntVar(value=8)
         ttk.Entry(f_p, textvariable=self.batch_size_var, width=5).pack(side=tk.LEFT, padx=5)
-        
         ttk.Label(f_p, text="LR:").pack(side=tk.LEFT, padx=(15,0))
         self.lr_var = tk.DoubleVar(value=0.0001)
         ttk.Entry(f_p, textvariable=self.lr_var, width=8).pack(side=tk.LEFT, padx=5)
-        
         self.btn_train = ttk.Button(f_p, text="▶ Start", style="Action.TButton")
         self.btn_train.pack(side=tk.LEFT, padx=20)
         self.btn_stop_train = ttk.Button(f_p, text="⏹ Stop", state=tk.DISABLED, style="Danger.TButton")
@@ -224,7 +214,6 @@ class View(tk.Tk):
         self.ax_acc = self.plot_fig.add_subplot(121)
         self.ax_loss = self.plot_fig.add_subplot(122)
         self._style_plots([self.ax_acc, self.ax_loss])
-        
         self.monitor_canvas = FigureCanvasTkAgg(self.plot_fig, master=parent)
         self.monitor_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, pady=5)
 
@@ -240,22 +229,16 @@ class View(tk.Tk):
         self.classifier_console.pack(fill=tk.X, padx=5, pady=5)
 
     def _build_analysis_tab(self, parent):
-
         f_summary = ttk.Frame(parent)
         f_summary.pack(fill=tk.X, pady=10)
-        
         self.lbl_test_acc = ttk.Label(f_summary, text="Test Accuracy: N/A", font=("Segoe UI", 16, "bold"), foreground=self.COLORS['accent'])
         self.lbl_test_acc.pack(side=tk.LEFT, padx=20)
-        
         self.lbl_test_loss = ttk.Label(f_summary, text="Test Loss: N/A", font=("Segoe UI", 12))
         self.lbl_test_loss.pack(side=tk.LEFT, padx=20)
-
-
         self.cm_fig = Figure(figsize=(6, 5), dpi=100, facecolor=self.COLORS['bg_dark'])
         self.ax_cm = self.cm_fig.add_subplot(111)
         self.ax_cm.set_facecolor(self.COLORS['bg_dark'])
-        self.ax_cm.axis('off')
-        
+        self.ax_cm.axis('off') 
         self.cm_canvas = FigureCanvasTkAgg(self.cm_fig, master=parent)
         self.cm_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
@@ -270,24 +253,17 @@ class View(tk.Tk):
                 spine.set_color('#555555')
 
     def show_analysis_results(self, cm, classes, acc, loss):
-
         self.lbl_test_acc.config(text=f"Test Accuracy: {acc*100:.2f}%")
         self.lbl_test_loss.config(text=f"Test Loss: {loss:.4f}")
-        
-
         self.ax_cm.clear()
+        self.ax_cm.axis('on')
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=self.ax_cm, 
                     xticklabels=classes, yticklabels=classes)
         self.ax_cm.set_title('Confusion Matrix', color='white')
         self.ax_cm.set_xlabel('Predicted', color='white')
         self.ax_cm.set_ylabel('True', color='white')
         self.ax_cm.tick_params(colors='white')
-        
-
-
-        
         self.cm_canvas.draw()
-
         self.class_notebook.select(self.tab_analysis)
 
     def _update_z_label(self, val):
@@ -342,26 +318,60 @@ class View(tk.Tk):
         self.val_acc_data.append(logs.get('val_accuracy'))
         self.loss_data.append(logs.get('loss'))
         self.val_loss_data.append(logs.get('val_loss'))
-        
         self.ax_acc.clear()
         self.ax_loss.clear()
         self._style_plots([self.ax_acc, self.ax_loss])
-
         self.ax_acc.plot(self.acc_data, label='Train', color='#4a90e2')
         self.ax_acc.plot(self.val_acc_data, label='Val', color='#6a8759')
         self.ax_acc.set_title("Accuracy")
         self.ax_acc.legend()
-        
         self.ax_loss.plot(self.loss_data, label='Train', color='#4a90e2')
         self.ax_loss.plot(self.val_loss_data, label='Val', color='#6a8759')
         self.ax_loss.set_title("Loss")
         self.ax_loss.legend()
-        
         self.monitor_canvas.draw()
         if msg: self.update_classifier_console(msg)
 
     def set_ui_state(self, state):
-        pass
+
+        view_btns = list(self.view_buttons.values())
+        main_controls = [self.btn_print, self.btn_capture, self.btn_auto, self.btn_pipeline, self.btn_save, self.classification_dropdown]
+        all_btns = main_controls + view_btns
+
+        disabled_all = ['disabled'] * len(all_btns)
+        
+        if state == 'IDLE':
+            states = ['normal', 'normal', 'normal', 'disabled', 'disabled', 'normal'] + ['disabled'] * len(view_btns)
+            auto_text = "🚀 Start Autonomous"
+            
+        elif state == 'CAPTURED':
+            states = ['normal', 'normal', 'normal', 'normal', 'disabled', 'normal'] + ['normal'] * len(view_btns)
+            auto_text = "🚀 Start Autonomous"
+            
+        elif state == 'PROCESSED':
+            states = ['normal', 'normal', 'normal', 'normal', 'normal', 'normal'] + ['normal'] * len(view_btns)
+            auto_text = "🚀 Start Autonomous"
+            
+        elif state == 'BUSY':
+            states = disabled_all
+            auto_text = "⏳ Working..."
+            
+        elif state == 'AUTONOMOUS':
+            states = ['disabled', 'disabled', 'normal', 'disabled', 'disabled', 'disabled'] + ['disabled'] * len(view_btns)
+            auto_text = "🛑 Stop Auto"
+        else:
+            states = disabled_all
+            auto_text = "Error"
+
+        for btn, s in zip(all_btns, states):
+            btn.config(state=s)
+            
+        self.btn_auto.config(text=auto_text)
+        if state == 'AUTONOMOUS':
+            self.btn_auto.config(style="Danger.TButton")
+        else:
+            self.btn_auto.config(style="Action.TButton")
+
     def show_error(self, t, m): messagebox.showerror(t, m)
     def show_info(self, t, m): messagebox.showinfo(t, m)
     def ask_ok_cancel(self, t, m): return messagebox.askokcancel(t, m)
