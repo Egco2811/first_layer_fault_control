@@ -1,10 +1,10 @@
 import tensorflow as tf
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Flatten, Dense, Dropout, RandomFlip, RandomRotation, RandomZoom
-from tensorflow.keras.utils import image_dataset_from_directory
+from tensorflow.keras.layers import Flatten, Dense, Dropout, RandomFlip, RandomRotation, RandomZoom, RandomContrast, RandomBrightness, Input, Lambda
 from tensorflow.keras.callbacks import ReduceLROnPlateau, EarlyStopping
-from tensorflow.keras.applications import VGG16
-from tensorflow.keras.applications.vgg16 import preprocess_input
+from tensorflow.keras.applications import VGG19
+from tensorflow.keras.applications.vgg19 import preprocess_input
+from tensorflow.keras.regularizers import l2
 import numpy as np
 from sklearn.metrics import confusion_matrix
 import pathlib
@@ -14,16 +14,13 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
     data_dir = pathlib.Path('images/')
     img_height = 224
     img_width = 224
-    model_save_path = 'image_classifier_model_vgg16.h5'
+    model_save_path = 'image_classifier_model_vgg19.h5'
     classes_save_path = 'class_names.json'
 
-    early_stopping = EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True)
-    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=1e-7)
-
+    early_stopping = EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True)
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=8, min_lr=1e-7)
 
     all_image_paths = list(data_dir.glob('*/*.jpg'))
-    
-
     all_image_paths = [str(path) for path in all_image_paths]
 
     class_names = sorted([item.name for item in data_dir.glob('*') if item.is_dir()])
@@ -34,24 +31,25 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
     label_to_index = dict((name, i) for i, name in enumerate(class_names))
     all_labels = [label_to_index[pathlib.Path(path).parent.name] for path in all_image_paths]
 
+    print(f"Total images: {len(all_image_paths)}")
+
     from sklearn.model_selection import train_test_split
     train_paths, val_test_paths, train_labels, val_test_labels = train_test_split(
-        all_image_paths, all_labels, test_size=0.4, random_state=123, stratify=all_labels)
+        all_image_paths, all_labels, test_size=0.4, random_state=42, stratify=all_labels)
     
     val_paths, test_paths, val_labels, test_labels = train_test_split(
-        val_test_paths, val_test_labels, test_size=0.5, random_state=123, stratify=val_test_labels)
+        val_test_paths, val_test_labels, test_size=0.5, random_state=42, stratify=val_test_labels)
 
     def create_dataset(paths, labels):
-
         path_ds = tf.data.Dataset.from_tensor_slices(paths)
         
-        def load_and_preprocess_image(path):
+        def load_image(path):
             image = tf.io.read_file(path)
             image = tf.image.decode_jpeg(image, channels=3)
             image = tf.image.resize(image, [img_height, img_width])
             return image
 
-        image_ds = path_ds.map(load_and_preprocess_image, num_parallel_calls=tf.data.AUTOTUNE)
+        image_ds = path_ds.map(load_image, num_parallel_calls=tf.data.AUTOTUNE)
         label_ds = tf.data.Dataset.from_tensor_slices(tf.keras.utils.to_categorical(labels, num_classes=len(class_names)))
         return tf.data.Dataset.zip((image_ds, label_ds))
 
@@ -59,27 +57,36 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
     val_ds = create_dataset(val_paths, val_labels)
     test_ds = create_dataset(test_paths, test_labels)
 
-    train_ds = train_ds.batch(batch_size).map(lambda x, y: (preprocess_input(x), y), num_parallel_calls=tf.data.AUTOTUNE).prefetch(buffer_size=tf.data.AUTOTUNE)
-    val_ds = val_ds.batch(batch_size).map(lambda x, y: (preprocess_input(x), y), num_parallel_calls=tf.data.AUTOTUNE).prefetch(buffer_size=tf.data.AUTOTUNE)
-    test_ds = test_ds.batch(batch_size).map(lambda x, y: (preprocess_input(x), y), num_parallel_calls=tf.data.AUTOTUNE).prefetch(buffer_size=tf.data.AUTOTUNE)
+    train_ds = train_ds.batch(batch_size).prefetch(buffer_size=tf.data.AUTOTUNE)
+    val_ds = val_ds.batch(batch_size).prefetch(buffer_size=tf.data.AUTOTUNE)
+    test_ds = test_ds.batch(batch_size).prefetch(buffer_size=tf.data.AUTOTUNE)
+
 
     data_augmentation = Sequential([
-        RandomFlip("horizontal_and_vertical", input_shape=(img_height, img_width, 3)),
-        RandomRotation(0.2),
-        RandomZoom(0.2),
-    ])
+        RandomFlip("horizontal_and_vertical"),
+        RandomRotation(0.25),
+        RandomZoom(0.25),
+        RandomContrast(0.2),
+        RandomBrightness(0.2), 
+    ], name="augmentation")
 
-    base_model = VGG16(input_shape=(img_height, img_width, 3), include_top=False, weights='imagenet')
+    base_model = VGG19(input_shape=(img_height, img_width, 3), include_top=False, weights='imagenet')
     base_model.trainable = False
 
-    model = Sequential([
-        data_augmentation,
-        base_model,
-        Flatten(),
-        Dense(256, activation='relu'),
-        Dropout(0.5),
-        Dense(len(class_names), activation='softmax')
-    ])
+    inputs = Input(shape=(img_height, img_width, 3))
+    
+    x = data_augmentation(inputs)
+    
+    x = Lambda(preprocess_input)(x)
+    
+    x = base_model(x, training=False)
+    
+    x = Flatten()(x)
+    x = Dense(256, activation='relu', kernel_regularizer=l2(0.01))(x)
+    x = Dropout(0.6)(x) 
+    outputs = Dense(len(class_names), activation='softmax')(x)
+
+    model = tf.keras.Model(inputs, outputs)
     
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
     model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
@@ -91,12 +98,13 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
             self.stop_callback = stop_callback
 
         def on_epoch_end(self, epoch, logs=None):
-            message = f"Epoch {epoch+1}: loss={logs['loss']:.4f}, accuracy={logs['accuracy']:.4f}, val_loss={logs['val_loss']:.4f}, val_accuracy={logs['val_accuracy']:.4f}"
+            message = f"Epoch {epoch+1}: loss={logs['loss']:.4f}, acc={logs['accuracy']:.4f}, val_loss={logs['val_loss']:.4f}, val_acc={logs['val_accuracy']:.4f}"
             if self.plot_callback:
                 self.plot_callback(epoch, logs, message)
             if self.stop_callback and self.stop_callback():
                 self.model.stop_training = True
 
+    print("Starting training with aggressive augmentation...")
     model.fit(
         train_ds,
         validation_data=val_ds,
@@ -110,13 +118,14 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
 def generate_confusion_matrix_data(model, test_ds):
     y_true = []
     y_pred = []
+    
     for images, labels in test_ds:
         y_true.extend(np.argmax(labels.numpy(), axis=1))
+        
         predictions = model.predict(images, verbose=0)
         y_pred.extend(np.argmax(predictions, axis=1))
     
     cm = confusion_matrix(y_true, y_pred)
-    
     test_loss, test_acc = model.evaluate(test_ds, verbose=0)
     
     return cm, test_acc, test_loss

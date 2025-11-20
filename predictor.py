@@ -3,7 +3,6 @@ import numpy as np
 import json
 import os
 from tensorflow.keras.preprocessing.image import load_img, img_to_array
-from tensorflow.keras.applications.vgg16 import preprocess_input
 
 class Predictor:
     def __init__(self, model_path='image_classifier_model_vgg16.h5', class_file='class_names.json'):
@@ -16,7 +15,6 @@ class Predictor:
         self._load_resources()
 
     def _load_resources(self):
-
         self.model = None
         self.class_names = []
 
@@ -34,7 +32,6 @@ class Predictor:
                 print(f"Failed to load classes: {e}")
 
     def reload(self):
-        """Forces the predictor to re-read the model and class files from disk."""
         print("Reloading predictor resources...")
         self._load_resources()
 
@@ -46,7 +43,7 @@ class Predictor:
             img = load_img(image_path, target_size=(self.img_height, self.img_width))
             img_array = img_to_array(img)
             img_batch = np.expand_dims(img_array, axis=0)
-            img_batch = preprocess_input(img_batch)
+            
             
             predictions = self.model.predict(img_batch, verbose=0)
             score = tf.nn.softmax(predictions[0])

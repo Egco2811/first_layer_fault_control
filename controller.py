@@ -184,7 +184,6 @@ class Controller:
                 self.model.start_print()
                 print_succeeded = False
                 
-                # Poll print status
                 for state, message in self.model.poll_print_progress():
                     if not self.autonomous_running: break
                     self.view.after(0, lambda m=message: self.view.update_status(f"[Auto] {m}"))
@@ -207,7 +206,6 @@ class Controller:
 
                 final_pil_image = None
                 
-                # --- START OF NESTED TRY BLOCK ---
                 try:
                     user_sigma = self.view.canny_sigma_var.get()
                     debug_mode = self.view.debug_mode_var.get()
