@@ -5,7 +5,7 @@ import json
 from PIL import Image
 from config import Config
 from moonraker_interface import (start_print, poll_print_status, capture_image, cancel_print,
-                                 adjust_z_offset, restart_firmware, auto_home, send_gcode)
+                                 adjust_z_offset, restart_firmware, auto_home, send_gcode, apply_and_save_config)
 from preprocess_image import find_target_contour, crop_from_contour, auto_canny
 from file_handler import send_telegram_image
 
@@ -25,7 +25,6 @@ class Model:
         self.load_last_successful_corners()
 
     def has_image(self):
-        """Safe check if an image is currently loaded."""
         return self.original_image is not None
 
     def _convert_cv2_to_pil(self, cv2_image):
@@ -83,9 +82,8 @@ class Model:
 
     def _ensure_step_in_cache(self, step_name, sigma, debug_mode):
         if step_name in self.pipeline_cache: return
-
         if self.original_image is None:
-            raise RuntimeError("No image captured. Please capture an image first.")
+            raise RuntimeError("No image captured.")
 
         idx = self.PIPELINE_STEPS.index(step_name)
         if idx == 0:
@@ -119,17 +117,13 @@ class Model:
         self.pipeline_cache[step_name] = processed
 
     def process_image_step(self, target_step_name, sigma, debug_mode=False):
-        if not self.has_image():
-            raise RuntimeError("No image to process.")
-        
+        if not self.has_image(): raise RuntimeError("No image to process.")
         self._ensure_step_in_cache(target_step_name, sigma, debug_mode)
         self.processed_image = self.pipeline_cache[target_step_name]
         return self._convert_cv2_to_pil(self.processed_image)
 
     def run_full_pipeline_with_retry(self, user_sigma, debug_mode=False):
-        if not self.has_image():
-            raise RuntimeError("No image to process.")
-
+        if not self.has_image(): raise RuntimeError("No image to process.")
         user_sigma = round(user_sigma, 2)
         lower, upper = max(0.0, user_sigma - 0.3), min(1.0, user_sigma + 0.3)
         sigmas = [user_sigma] + [round(lower + i * 0.01, 2) for i in range(int((upper - lower) / 0.01))]
@@ -147,13 +141,9 @@ class Model:
         raise RuntimeError("Failed to find shape and no fallback parameters available.")
 
     def crop_with_fallback(self):
-        if not self.has_image():
-            raise RuntimeError("No image to process.")
-        if self.last_successful_corners is None:
-            raise RuntimeError("No fallback parameters saved.")
-        if 'Original' not in self.pipeline_cache:
-             self.pipeline_cache['Original'] = self.original_image.copy()
-        
+        if not self.has_image(): raise RuntimeError("No image to process.")
+        if self.last_successful_corners is None: raise RuntimeError("No fallback parameters saved.")
+        if 'Original' not in self.pipeline_cache: self.pipeline_cache['Original'] = self.original_image.copy()
         cropped = crop_from_contour(self.pipeline_cache['Original'], self.last_successful_corners)
         self.processed_image = cropped
         return self._convert_cv2_to_pil(cropped)
@@ -166,12 +156,10 @@ class Model:
         if self.processed_image is None: raise ValueError("No processed image to save.")
         dir_path = os.path.join("images", classification)
         os.makedirs(dir_path, exist_ok=True)
-        
         existing = [f for f in os.listdir(dir_path) if f.endswith('.jpg')]
         nums = {int(f.split('.')[0]) for f in existing if f.split('.')[0].isdigit()}
         idx = 0
         while idx in nums: idx += 1
-        
         path = os.path.join(dir_path, f"{idx}.jpg")
         cv2.imwrite(path, self.processed_image)
         return path
@@ -181,6 +169,7 @@ class Model:
             send_telegram_image(Config.TELEGRAM_TOKEN, Config.TELEGRAM_CHAT_ID, image_path, caption)
 
     def adjust_z_offset(self, adj): adjust_z_offset(Config.PRINTER_URL, adj)
+    def save_permanent_config(self): apply_and_save_config(Config.PRINTER_URL)
     def restart_firmware(self): restart_firmware(Config.PRINTER_URL)
     def auto_home(self): auto_home(Config.PRINTER_URL)
     def send_gcode(self, cmd): send_gcode(Config.PRINTER_URL, cmd)

@@ -333,11 +333,11 @@ class View(tk.Tk):
         if msg: self.update_classifier_console(msg)
 
     def set_ui_state(self, state):
-
+        
         view_btns = list(self.view_buttons.values())
         main_controls = [self.btn_print, self.btn_capture, self.btn_auto, self.btn_pipeline, self.btn_save, self.classification_dropdown]
         all_btns = main_controls + view_btns
-
+        
         disabled_all = ['disabled'] * len(all_btns)
         
         if state == 'IDLE':

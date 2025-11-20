@@ -57,6 +57,11 @@ def cancel_print(moonraker_url):
 def adjust_z_offset(moonraker_url, adjustment):
     send_gcode(moonraker_url, f"SET_GCODE_OFFSET Z_ADJUST={adjustment} MOVE=1")
 
+def apply_and_save_config(moonraker_url):
+    send_gcode(moonraker_url, "Z_OFFSET_APPLY_PROBE")
+    time.sleep(1)
+    send_gcode(moonraker_url, "SAVE_CONFIG")
+
 def restart_firmware(moonraker_url):
     send_gcode(moonraker_url, "FIRMWARE_RESTART")
 

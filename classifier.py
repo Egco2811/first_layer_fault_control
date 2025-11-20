@@ -72,7 +72,7 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
 
     inputs = Input(shape=(img_height, img_width, 3))
     x = data_augmentation(inputs)
-    x = Lambda(preprocess_input)(x) 
+    x = Lambda(preprocess_input)(x)
     x = base_model(x, training=False)
     
     x = Flatten()(x)
