@@ -66,6 +66,10 @@ class Controller:
         self.view.after(0, lambda: self.view.set_ui_state('BUSY'))
         self.view.after(0, lambda: self.view.update_status("Starting print..."))
         try:
+            if not self.model.wait_for_ready():
+                 self.view.after(0, lambda: self.view.update_status("Printer not ready/connected."))
+                 return
+
             self.model.start_print()
             print_succeeded = False
             for state, message in self.model.poll_print_progress():
@@ -188,12 +192,24 @@ class Controller:
         
         while self.autonomous_running:
             try:
+                if not self.model.wait_for_ready():
+                    self.view.after(0, lambda: self.view.update_status("[Auto] Printer not ready. Retrying..."))
+                    self.model.restart_firmware()
+                    time.sleep(10)
+                    if not self.model.wait_for_ready():
+                         self.view.after(0, lambda: self.view.show_error("Auto Error", "Printer is not responding (Shutdown/Error)."))
+                         self.autonomous_running = False
+                         break
+
                 print_success = False
                 retries = 0
                 
                 while retries < Config.MAX_PRINT_RETRIES and self.autonomous_running:
                     self.view.after(0, lambda: self.view.update_status(f"[Auto] Starting print (Attempt {retries+1})..."))
+                    
                     self.model.start_print()
+                    
+                    time.sleep(2)
                     
                     error_occurred = False
                     for state, message in self.model.poll_print_progress():
@@ -203,7 +219,7 @@ class Controller:
                         if state == "complete":
                             print_success = True
                             break
-                        elif state in ["error", "cancelled"]:
+                        elif state in ["error", "cancelled", "shutdown"]:
                             error_occurred = True
                             break
                     
@@ -211,18 +227,18 @@ class Controller:
                         break
                     
                     if error_occurred and self.autonomous_running:
-                        self.view.after(0, lambda: self.view.update_status("[Auto] Print Error. Restarting Firmware..."))
+                        self.view.after(0, lambda: self.view.update_status("[Auto] Print Error/Shutdown. Restarting Firmware..."))
                         self.model.restart_firmware()
+                        time.sleep(10)
                         
-                        self.view.after(0, lambda: self.view.update_status("[Auto] Waiting for printer readiness..."))
                         if not self.model.wait_for_ready():
-                            self.view.after(0, lambda: self.view.update_status("[Auto] Printer reconnect timed out."))
+                            self.view.after(0, lambda: self.view.update_status("[Auto] Printer failed to recover."))
                             break
-                            
+
                         self.view.after(0, lambda: self.view.update_status("[Auto] Homing..."))
                         self.model.auto_home()
                         
-                        self.view.after(0, lambda: self.view.update_status("[Auto] Waiting for moves to complete..."))
+                        self.view.after(0, lambda: self.view.update_status("[Auto] Waiting for moves..."))
                         self.model.force_still()
                         retries += 1
                     else:
@@ -231,6 +247,9 @@ class Controller:
                 if not print_success or not self.autonomous_running:
                     self.view.after(0, lambda: self.view.update_status("[Auto] Failed to complete print after retries."))
                     break
+
+                self.view.after(0, lambda: self.view.update_status("[Auto] Ensuring stillness..."))
+                self.model.force_still()
 
                 self.view.after(0, lambda: self.view.update_status("[Auto] Capturing image..."))
                 self.model.capture_and_load_image(UNPROCESSED_IMAGE_FILE)
