@@ -246,7 +246,7 @@ class Controller:
     def _webcam_loop(self):
         stream_url = self.model.get_webcam_stream_url()
         
-        with SuppressStderr():
+        with StderrSuppressor():
             cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
             while self.webcam_running:
                 ret, frame = cap.read()
