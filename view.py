@@ -1,426 +1,368 @@
 import tkinter as tk
-from tkinter import ttk, PanedWindow, Entry, Scrollbar, messagebox, Frame, Label, Button, Canvas, OptionMenu, Scale, Checkbutton, Text, filedialog
+from tkinter import ttk, messagebox, filedialog, Canvas
 from PIL import Image, ImageTk
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-
+import seaborn as sns
 
 class View(tk.Tk):
     CLASSIFICATIONS = ["high", "ideal", "low"]
     Z_OFFSET_VALUES = [0.01, 0.025, 0.05, 0.1]
+    
+    COLORS = {
+        "bg_dark": "#2b2b2b",
+        "bg_light": "#3c3f41",
+        "fg_text": "#ffffff",
+        "accent": "#4a90e2",
+        "success": "#6a8759",
+        "danger": "#cc5c5c",
+    }
 
     def __init__(self):
         super().__init__()
-        self.title("3D Print Data Collector")
+        self.title("3D Print Data Collector & Classifier")
         self.state('zoomed')
+        self.configure(bg=self.COLORS['bg_dark'])
         self.controller = None
-        self.current_display_image = None
-        self.current_webcam_image = None
-        self.classifier_plot_img = None
-
+        
         self.acc_data = []
         self.val_acc_data = []
         self.loss_data = []
         self.val_loss_data = []
 
-        self.notebook = ttk.Notebook(self)
-        self.data_collection_tab = Frame(self.notebook)
-        self.classification_tab = Frame(self.notebook)
-        self.notebook.add(self.data_collection_tab, text="Data Collection")
-        self.notebook.add(self.classification_tab, text="Classification")
-        self.notebook.pack(fill=tk.BOTH, expand=True)
-
-        self.top_container = Frame(self.data_collection_tab)
-        self.bottom_container = Frame(self.data_collection_tab, height=120)
-
-        self._create_widgets()
-        self._layout_widgets()
+        self._setup_styles()
+        self._create_layout()
+        self._create_data_collection_ui()
+        self._create_classification_ui()
+        
         self.set_ui_state('IDLE')
-        self._update_z_slider_label(self.z_offset_slider_var.get())
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
-        self.after(100, lambda: self.top_pane.sash_place(0, 250))
+
+    def _setup_styles(self):
+        style = ttk.Style(self)
+        style.theme_use('clam')
+        style.configure("TFrame", background=self.COLORS['bg_dark'])
+        style.configure("TLabel", background=self.COLORS['bg_dark'], foreground=self.COLORS['fg_text'], font=("Segoe UI", 10))
+        style.configure("TButton", background=self.COLORS['bg_light'], foreground=self.COLORS['fg_text'], borderwidth=1)
+        style.map("TButton", background=[('active', self.COLORS['accent']), ('disabled', self.COLORS['bg_dark'])])
+        style.configure("Action.TButton", background=self.COLORS['accent'], font=("Segoe UI", 10, "bold"))
+        style.configure("Danger.TButton", background=self.COLORS['danger'])
+        style.configure("TLabelframe", background=self.COLORS['bg_dark'], bordercolor=self.COLORS['bg_light'])
+        style.configure("TLabelframe.Label", background=self.COLORS['bg_dark'], foreground=self.COLORS['accent'])
+        style.configure("TNotebook", background=self.COLORS['bg_dark'], borderwidth=0)
+        style.configure("TNotebook.Tab", background=self.COLORS['bg_light'], foreground=self.COLORS['fg_text'], padding=[10, 5])
+        style.map("TNotebook.Tab", background=[("selected", self.COLORS['accent'])])
+        style.configure("Horizontal.TScale", background=self.COLORS['bg_dark'], troughcolor=self.COLORS['bg_light'])
+        style.configure("TCheckbutton", background=self.COLORS['bg_dark'], foreground=self.COLORS['fg_text'])
 
     def set_controller(self, controller):
         self.controller = controller
-        self.start_auto_button.config(command=self.controller.toggle_autonomous_mode)
-        self.restart_firmware_button.config(command=self.controller.restart_firmware)
-        self.auto_home_button.config(command=self.controller.auto_home)
-        self.z_offset_up_button.config(command=self._on_z_adjust_up)
-        self.z_offset_down_button.config(command=self._on_z_adjust_down)
-        self.print_button.config(command=self.controller.print_shape)
-        self.capture_button.config(command=self.controller.capture_and_display_image)
-        self.save_button.config(command=self.controller.save_final_image)
-        self.sigma_slider.config(command=self.controller.on_sigma_change)
+        self.btn_auto.config(command=self.controller.toggle_autonomous_mode)
+        self.btn_restart.config(command=self.controller.restart_firmware)
+        self.btn_home.config(command=self.controller.auto_home)
+        self.btn_z_up.config(command=lambda: self.controller.adjust_z(self.Z_OFFSET_VALUES[self.z_slider_var.get()]))
+        self.btn_z_down.config(command=lambda: self.controller.adjust_z(-self.Z_OFFSET_VALUES[self.z_slider_var.get()]))
+        self.btn_print.config(command=self.controller.print_shape)
+        self.btn_capture.config(command=self.controller.capture_and_display_image)
+        self.btn_save.config(command=self.controller.save_final_image)
+        self.btn_pipeline.config(command=self.controller.process_to_final)
+        self.sigma_scale.config(command=self.controller.on_sigma_change)
         for step, btn in self.view_buttons.items():
             btn.config(command=lambda s=step: self.controller.view_step(s))
-        self.process_final_button.config(command=self.controller.process_to_final)
-        self.gcode_send_button.config(command=self._send_gcode_from_ui)
-        self.gcode_entry.bind("<Return>", lambda event: self._send_gcode_from_ui())
-        self.classifier_train_button.config(command=controller.start_network_training)
-        self.select_file_button.config(command=self._select_prediction_file)
-        self.predict_button.config(command=controller.predict_selected_file)
-        self.stop_training_button.config(command=controller.stop_network_training)
+        self.btn_send_gcode.config(command=self._send_gcode)
+        self.entry_gcode.bind("<Return>", lambda e: self._send_gcode())
+        self.btn_train.config(command=controller.start_network_training)
+        self.btn_stop_train.config(command=controller.stop_network_training)
+        self.btn_select_file.config(command=self._select_prediction_file)
+        self.btn_predict.config(command=controller.predict_selected_file)
 
     def _on_closing(self):
-        if self.controller:
-            self.controller.on_close()
+        if self.controller: self.controller.on_close()
 
-    def _create_widgets(self):
-        self.top_container = Frame(self.data_collection_tab)  
-        self.bottom_container = Frame(self.data_collection_tab, height=120) 
+    def _create_layout(self):
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.tab_collection = ttk.Frame(self.notebook)
+        self.tab_classification = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_collection, text="  📷 Data Collection  ")
+        self.notebook.add(self.tab_classification, text="  🧠 Classification & Training  ")
 
-        self.bottom_container.pack(side=tk.BOTTOM, fill=tk.X, expand=False)
-        self.top_container.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+    def _create_data_collection_ui(self):
+        self.tab_collection.columnconfigure(1, weight=1)
+        self.tab_collection.rowconfigure(0, weight=1)
+        left_panel = ttk.Frame(self.tab_collection, padding=10)
+        left_panel.grid(row=0, column=0, sticky="nsew")
+        center_panel = ttk.Frame(self.tab_collection, padding=10)
+        center_panel.grid(row=0, column=1, sticky="nsew")
+        right_panel = ttk.Frame(self.tab_collection, padding=10)
+        right_panel.grid(row=0, column=2, sticky="nsew")
+        bottom_panel = ttk.Frame(self.tab_collection, padding=10)
+        bottom_panel.grid(row=1, column=0, columnspan=3, sticky="ew")
+        self._build_printer_controls(left_panel)
+        self._build_image_view(center_panel)
+        self._build_pipeline_controls(right_panel)
+        self._build_console(bottom_panel)
 
-        self.top_pane = PanedWindow(self.top_container, orient=tk.HORIZONTAL, sashrelief=tk.RAISED)
-
-        self.control_frame_container = Frame(self.top_pane)
-        self.control_canvas = Canvas(self.control_frame_container, highlightthickness=0)
-        self.scrollbar = Scrollbar(self.control_frame_container, orient="vertical", command=self.control_canvas.yview)
-        self.scrollable_inner_frame = Frame(self.control_canvas)
-        self.top_pane.add(self.control_frame_container)
-
-        self.image_frame = Frame(self.top_pane, bg='gray20')
-        self.image_canvas = Canvas(self.image_frame, bg='gray10', highlightthickness=0)
-        self.webcam_label = Label(self.image_frame, bg='black')
-        self.top_pane.add(self.image_frame)
-
-        self.terminal_frame = Frame(self.bottom_container, padx=5, pady=5)
-        self.status_text = Text(self.terminal_frame, height=4, wrap=tk.WORD, state=tk.DISABLED)
-        self.gcode_input_frame = Frame(self.terminal_frame)
-        self.gcode_entry = Entry(self.gcode_input_frame)
-        self.gcode_send_button = Button(self.gcode_input_frame, text="Send")
-
-        parent = self.scrollable_inner_frame
+    def _build_printer_controls(self, parent):
+        lf = ttk.LabelFrame(parent, text="Printer Operations")
+        lf.pack(fill=tk.X, pady=5)
+        self.btn_auto = ttk.Button(lf, text="🚀 Start Autonomous", style="Action.TButton")
+        self.btn_auto.pack(fill=tk.X, padx=5, pady=5)
+        self.btn_home = ttk.Button(lf, text="🏠 Home All Axes")
+        self.btn_home.pack(fill=tk.X, padx=5, pady=2)
+        self.btn_restart = ttk.Button(lf, text="🔄 Restart Firmware", style="Danger.TButton")
+        self.btn_restart.pack(fill=tk.X, padx=5, pady=2)
         
-        self.printer_controls_frame = Frame(parent)
-        self.manual_steps_frame = Frame(parent)
-        self.classification_frame = Frame(parent)
-        self.processing_views_frame = Frame(parent)
+        lf_z = ttk.LabelFrame(parent, text="Z-Offset")
+        lf_z.pack(fill=tk.X, pady=10)
+        self.z_slider_var = tk.IntVar(value=1)
+        self.lbl_z_val = ttk.Label(lf_z, text=f"Step: {self.Z_OFFSET_VALUES[1]}mm")
+        self.lbl_z_val.pack(pady=(5,0))
+        ttk.Scale(lf_z, from_=0, to=3, orient=tk.HORIZONTAL, variable=self.z_slider_var, command=self._update_z_label).pack(fill=tk.X, padx=5)
+        f_z = ttk.Frame(lf_z)
+        f_z.pack(fill=tk.X, pady=5)
+        self.btn_z_up = ttk.Button(f_z, text="⬆ Up")
+        self.btn_z_up.pack(side=tk.LEFT, expand=True, fill=tk.X)
+        self.btn_z_down = ttk.Button(f_z, text="⬇ Down")
+        self.btn_z_down.pack(side=tk.LEFT, expand=True, fill=tk.X)
+        
+        lf_m = ttk.LabelFrame(parent, text="Manual")
+        lf_m.pack(fill=tk.X, pady=10)
+        self.btn_print = ttk.Button(lf_m, text="🖨 Print Shape")
+        self.btn_print.pack(fill=tk.X, padx=5, pady=2)
+        self.btn_capture = ttk.Button(lf_m, text="📸 Capture")
+        self.btn_capture.pack(fill=tk.X, padx=5, pady=2)
 
-        self.start_auto_button = Button(self.printer_controls_frame, text="Start Autonomous Mode")
-        self.restart_firmware_button = Button(self.printer_controls_frame, text="Restart Firmware")
-        self.auto_home_button = Button(self.printer_controls_frame, text="Auto Home All Axes")
-        self.z_offset_frame = Frame(self.printer_controls_frame, borderwidth=1, relief=tk.RIDGE)
-        self.z_offset_label = Label(self.z_offset_frame, text="Set Z Offset", font=("Arial", 10, "bold"))
-        self.z_offset_slider_var = tk.IntVar(value=2)
-        self.z_offset_slider = Scale(self.z_offset_frame, from_=0, to=len(self.Z_OFFSET_VALUES)-1,
-                                     orient=tk.HORIZONTAL, variable=self.z_offset_slider_var,
-                                     showvalue=0, command=self._update_z_slider_label)
-        self.z_offset_slider_label_var = tk.StringVar()
-        self.z_offset_slider_label = Label(self.z_offset_frame, textvariable=self.z_offset_slider_label_var)
-        self.z_offset_up_button = Button(self.z_offset_frame, text="Up")
-        self.z_offset_down_button = Button(self.z_offset_frame, text="Down")
+    def _build_image_view(self, parent):
+        parent.rowconfigure(0, weight=1)
+        parent.columnconfigure(0, weight=1)
+        container = tk.Frame(parent, bg="black", bd=2, relief=tk.SUNKEN)
+        container.grid(row=0, column=0, sticky="nsew")
+        self.image_canvas = Canvas(container, bg="black", highlightthickness=0)
+        self.image_canvas.pack(fill=tk.BOTH, expand=True)
+        self.webcam_frame = tk.Label(container, bg="black", bd=1, relief=tk.SOLID)
+        self.webcam_frame.place(relx=1.0, rely=1.0, anchor="se", x=-10, y=-10)
 
-        self.print_button = Button(self.manual_steps_frame, text="Print Shape")
-        self.capture_button = Button(self.manual_steps_frame, text="Capture Image")
-
-        self.classification_var = tk.StringVar(value=self.CLASSIFICATIONS[1])
-        self.classification_dropdown = OptionMenu(self.classification_frame, self.classification_var, *self.CLASSIFICATIONS)
-        self.save_button = Button(self.classification_frame, text="Save Image")
-
+    def _build_pipeline_controls(self, parent):
+        lf = ttk.LabelFrame(parent, text="Processing")
+        lf.pack(fill=tk.X, pady=5)
         self.debug_mode_var = tk.BooleanVar(value=False)
-        self.debug_mode_checkbox = Checkbutton(self.processing_views_frame, text="Debug Mode", variable=self.debug_mode_var)
-        self.view_buttons_frame = Frame(self.processing_views_frame)
-        self.view_buttons = {}
-        steps = ["Original", "Grayscale", "Blurred", "Find Outer Edges", "Closed Edges", "Crop to Shape"]
-        for step in steps:
-            self.view_buttons[step] = Button(self.view_buttons_frame, text=step)
-        self.process_final_button = Button(self.processing_views_frame, text="Process to Final")
+        ttk.Checkbutton(lf, text="Debug Info", variable=self.debug_mode_var).pack(anchor="w", padx=5)
+        ttk.Label(lf, text="Canny Sigma:").pack(anchor="w", padx=5, pady=(5,0))
         self.canny_sigma_var = tk.DoubleVar(value=0.4)
-        self.sigma_slider_label = Label(self.processing_views_frame, text="Canny Edge Sigma", font=("Arial", 10))
-        self.sigma_slider = Scale(self.processing_views_frame, from_=0.0, to=1.0, resolution=0.01, orient=tk.HORIZONTAL,
-                                  variable=self.canny_sigma_var)
-
-        self.training_controls_frame = Frame(self.classification_tab)
-        self.training_controls_frame.pack(side=tk.TOP, fill=tk.X, pady=10)
-        self.training_controls_inner = Frame(self.training_controls_frame)
-        self.training_controls_inner.pack(anchor='center')
-
-        Label(self.training_controls_inner, text="Epochs:").pack(side=tk.LEFT, padx=2)
-        self.epochs_var = tk.IntVar(value=200)
-        self.epochs_slider = Scale(
-            self.training_controls_inner,
-            from_=5,
-            to=500,
-            orient=tk.HORIZONTAL,
-            variable=self.epochs_var,
-            length=120,
-            resolution=5  
-        )
-        self.epochs_slider.pack(side=tk.LEFT, padx=2)
-
-        Label(self.training_controls_inner, text="Batch Size:").pack(side=tk.LEFT, padx=2)
-        self.batch_size_var = tk.IntVar(value=8)
-        self.batch_size_slider = Scale(self.training_controls_inner, from_=1, to=64, orient=tk.HORIZONTAL, variable=self.batch_size_var, length=120)
-        self.batch_size_slider.pack(side=tk.LEFT, padx=2)
-
-        Label(self.training_controls_inner, text="Learning Rate:").pack(side=tk.LEFT, padx=2)
-        self.lr_var = tk.DoubleVar(value=0.001)
-        self.lr_slider = Scale(self.training_controls_inner, from_=0.0001, to=0.01, resolution=0.0001, orient=tk.HORIZONTAL, variable=self.lr_var, length=120)
-        self.lr_slider.pack(side=tk.LEFT, padx=2)
-
-        self.classifier_train_button = Button(self.training_controls_inner, text="Start Network Training")
-        self.classifier_train_button.pack(side=tk.LEFT, padx=10)
-        self.stop_training_button = Button(self.training_controls_inner, text="Stop Training", state=tk.DISABLED)
-        self.stop_training_button.pack(side=tk.LEFT, padx=10)
-
-        self.classifier_display_frame = Frame(self.classification_tab)
-        self.classifier_display_frame.pack(pady=5)
+        self.sigma_scale = ttk.Scale(lf, from_=0.0, to=1.0, variable=self.canny_sigma_var)
+        self.sigma_scale.pack(fill=tk.X, padx=5, pady=5)
+        self.view_buttons = {}
+        for step in ["Original", "Grayscale", "Blurred", "Find Outer Edges", "Closed Edges", "Crop to Shape"]:
+            self.view_buttons[step] = ttk.Button(lf, text=step)
+            self.view_buttons[step].pack(fill=tk.X, padx=5, pady=1)
+        ttk.Separator(lf, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=10)
+        self.btn_pipeline = ttk.Button(lf, text="✨ Full Pipeline", style="Action.TButton")
+        self.btn_pipeline.pack(fill=tk.X, padx=5, pady=5)
         
-        self.plot_fig = Figure(figsize=(6, 3.5), dpi=100)
+        lf_s = ttk.LabelFrame(parent, text="Labeling")
+        lf_s.pack(fill=tk.X, pady=10)
+        self.classification_var = tk.StringVar(value=self.CLASSIFICATIONS[1])
+        self.classification_dropdown = ttk.OptionMenu(lf_s, self.classification_var, self.CLASSIFICATIONS[1], *self.CLASSIFICATIONS)
+        self.classification_dropdown.pack(fill=tk.X, padx=5, pady=5)
+        self.btn_save = ttk.Button(lf_s, text="💾 Save", style="Action.TButton")
+        self.btn_save.pack(fill=tk.X, padx=5, pady=5)
+
+    def _build_console(self, parent):
+        lf = ttk.LabelFrame(parent, text="Log")
+        lf.pack(fill=tk.BOTH, expand=True)
+        self.status_text = tk.Text(lf, height=5, bg=self.COLORS['bg_light'], fg=self.COLORS['fg_text'], font=("Consolas", 9), state=tk.DISABLED)
+        self.status_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        f = ttk.Frame(lf)
+        f.pack(side=tk.RIGHT, fill=tk.Y, padx=5)
+        self.entry_gcode = ttk.Entry(f, width=20)
+        self.entry_gcode.pack(fill=tk.X)
+        self.btn_send_gcode = ttk.Button(f, text="Send G-Code")
+        self.btn_send_gcode.pack(fill=tk.X)
+
+    def _create_classification_ui(self):
+        # Sub-tabs for Training Monitor vs Analysis
+        self.class_notebook = ttk.Notebook(self.tab_classification)
+        self.class_notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        self.tab_monitor = ttk.Frame(self.class_notebook)
+        self.tab_analysis = ttk.Frame(self.class_notebook)
+        
+        self.class_notebook.add(self.tab_monitor, text=" Monitor ")
+        self.class_notebook.add(self.tab_analysis, text=" Analysis ")
+        
+        # --- Monitor Tab ---
+        self._build_monitor_tab(self.tab_monitor)
+        # --- Analysis Tab ---
+        self._build_analysis_tab(self.tab_analysis)
+
+    def _build_monitor_tab(self, parent):
+        lf_conf = ttk.LabelFrame(parent, text="Config")
+        lf_conf.pack(fill=tk.X, pady=5)
+        
+        f_p = ttk.Frame(lf_conf)
+        f_p.pack(fill=tk.X, padx=10, pady=10)
+        
+        ttk.Label(f_p, text="Epochs:").pack(side=tk.LEFT)
+        self.epochs_var = tk.IntVar(value=50)
+        ttk.Entry(f_p, textvariable=self.epochs_var, width=5).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(f_p, text="Batch:").pack(side=tk.LEFT, padx=(15,0))
+        self.batch_size_var = tk.IntVar(value=8)
+        ttk.Entry(f_p, textvariable=self.batch_size_var, width=5).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(f_p, text="LR:").pack(side=tk.LEFT, padx=(15,0))
+        self.lr_var = tk.DoubleVar(value=0.0001)
+        ttk.Entry(f_p, textvariable=self.lr_var, width=8).pack(side=tk.LEFT, padx=5)
+        
+        self.btn_train = ttk.Button(f_p, text="▶ Start", style="Action.TButton")
+        self.btn_train.pack(side=tk.LEFT, padx=20)
+        self.btn_stop_train = ttk.Button(f_p, text="⏹ Stop", state=tk.DISABLED, style="Danger.TButton")
+        self.btn_stop_train.pack(side=tk.LEFT)
+
+        self.plot_fig = Figure(figsize=(5, 3), dpi=100, facecolor=self.COLORS['bg_dark'])
         self.ax_acc = self.plot_fig.add_subplot(121)
         self.ax_loss = self.plot_fig.add_subplot(122)
-        self.plot_fig.tight_layout(pad=2.0)
-
-        self.classifier_plot_canvas = FigureCanvasTkAgg(self.plot_fig, master=self.classifier_display_frame)
-        self.classifier_plot_canvas.get_tk_widget().grid(row=0, column=0, padx=10, pady=5)
+        self._style_plots([self.ax_acc, self.ax_loss])
         
-        blank_img = Image.new("RGB", (300, 300), "#E5E5E5") 
-        self.selected_image_tk = ImageTk.PhotoImage(blank_img)
-        self.selected_image_label = Label(self.classifier_display_frame, bg="gray90", relief=tk.SUNKEN, image=self.selected_image_tk)
-        self.selected_image_label.grid(row=0, column=1, padx=10, pady=5)
+        self.monitor_canvas = FigureCanvasTkAgg(self.plot_fig, master=parent)
+        self.monitor_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, pady=5)
 
-        self.prediction_controls_frame = Frame(self.classification_tab)
-        self.prediction_controls_frame.pack(pady=10)
-        self.prediction_controls_inner = Frame(self.prediction_controls_frame)
-        self.prediction_controls_inner.pack(anchor='center')
+        lf_pred = ttk.LabelFrame(parent, text="Quick Test")
+        lf_pred.pack(fill=tk.X, pady=5)
+        f_btn = ttk.Frame(lf_pred)
+        f_btn.pack(fill=tk.X, padx=5, pady=5)
+        self.btn_select_file = ttk.Button(f_btn, text="📂 File")
+        self.btn_select_file.pack(side=tk.LEFT)
+        self.btn_predict = ttk.Button(f_btn, text="🔍 Predict", style="Action.TButton")
+        self.btn_predict.pack(side=tk.LEFT, padx=5)
+        self.classifier_console = tk.Text(lf_pred, height=3, bg=self.COLORS['bg_light'], fg=self.COLORS['success'], font=("Consolas", 10), state=tk.DISABLED)
+        self.classifier_console.pack(fill=tk.X, padx=5, pady=5)
 
-        self.select_file_button = Button(self.prediction_controls_inner, text="Select File")
-        self.select_file_button.pack(side=tk.LEFT, padx=5)
-        self.selected_file_label = Label(self.prediction_controls_inner, text="No file selected")
-        self.selected_file_label.pack(side=tk.LEFT, padx=5)
-        self.predict_button = Button(self.prediction_controls_inner, text="Predict")
-        self.predict_button.pack(side=tk.LEFT, padx=5)
+    def _build_analysis_tab(self, parent):
+        # Top: Summary Metrics
+        f_summary = ttk.Frame(parent)
+        f_summary.pack(fill=tk.X, pady=10)
+        
+        self.lbl_test_acc = ttk.Label(f_summary, text="Test Accuracy: N/A", font=("Segoe UI", 16, "bold"), foreground=self.COLORS['accent'])
+        self.lbl_test_acc.pack(side=tk.LEFT, padx=20)
+        
+        self.lbl_test_loss = ttk.Label(f_summary, text="Test Loss: N/A", font=("Segoe UI", 12))
+        self.lbl_test_loss.pack(side=tk.LEFT, padx=20)
 
-        self.classifier_console = Text(self.classification_tab, height=8, wrap=tk.WORD, state=tk.DISABLED)
-        self.classifier_console.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Bottom: Confusion Matrix
+        self.cm_fig = Figure(figsize=(6, 5), dpi=100, facecolor=self.COLORS['bg_dark'])
+        self.ax_cm = self.cm_fig.add_subplot(111)
+        self.ax_cm.set_facecolor(self.COLORS['bg_dark'])
+        self.ax_cm.axis('off') # Hide axis until data is plotted
+        
+        self.cm_canvas = FigureCanvasTkAgg(self.cm_fig, master=parent)
+        self.cm_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-    def _layout_widgets(self):
-        self.top_pane.pack(fill=tk.BOTH, expand=True)
+    def _style_plots(self, axes):
+        for ax in axes:
+            ax.set_facecolor(self.COLORS['bg_light'])
+            ax.tick_params(colors='white')
+            ax.xaxis.label.set_color('white')
+            ax.yaxis.label.set_color('white')
+            ax.title.set_color('white')
+            for spine in ax.spines.values():
+                spine.set_color('#555555')
 
-        self.control_canvas.configure(yscrollcommand=self.scrollbar.set)
-        self.scrollbar.pack(side="right", fill="y")
-        self.control_canvas.pack(side="left", fill="both", expand=True)
-        self.canvas_window = self.control_canvas.create_window((0, 0), window=self.scrollable_inner_frame, anchor="nw")
+    def show_analysis_results(self, cm, classes, acc, loss):
+        # Update Metrics
+        self.lbl_test_acc.config(text=f"Test Accuracy: {acc*100:.2f}%")
+        self.lbl_test_loss.config(text=f"Test Loss: {loss:.4f}")
+        
+        # Plot Confusion Matrix
+        self.ax_cm.clear()
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=self.ax_cm, 
+                    xticklabels=classes, yticklabels=classes)
+        self.ax_cm.set_title('Confusion Matrix', color='white')
+        self.ax_cm.set_xlabel('Predicted', color='white')
+        self.ax_cm.set_ylabel('True', color='white')
+        self.ax_cm.tick_params(colors='white')
+        
+        # Adjust heatmap text color for dark theme compatibility if needed
+        # (Seaborn usually handles contrast, but axis labels need help)
+        
+        self.cm_canvas.draw()
+        # Switch to Analysis tab
+        self.class_notebook.select(self.tab_analysis)
 
-        def on_frame_configure(event):
-            self.control_canvas.configure(scrollregion=self.control_canvas.bbox("all"))
+    def _update_z_label(self, val):
+        idx = int(float(val))
+        self.lbl_z_val.config(text=f"Step: {self.Z_OFFSET_VALUES[idx]}mm")
 
-        def on_canvas_configure(event):
-            self.control_canvas.itemconfig(self.canvas_window, width=event.width)
-
-        self.scrollable_inner_frame.bind("<Configure>", on_frame_configure)
-        self.control_canvas.bind("<Configure>", on_canvas_configure)
-
-        self.image_frame.pack_propagate(False)
-        self.image_canvas.pack(fill=tk.BOTH, expand=True)
-        self.webcam_label.place(relx=1.0, rely=1.0, x=-10, y=-10, anchor='se')
-
-        self.terminal_frame.pack(fill=tk.BOTH, expand=True)
-        self.status_text.pack(fill=tk.BOTH, expand=True)
-        self.gcode_input_frame.pack(fill=tk.X)
-        self.gcode_send_button.pack(side=tk.RIGHT)
-        self.gcode_entry.pack(fill=tk.X, expand=True, side=tk.LEFT)
-
-        self.scrollable_inner_frame.grid_columnconfigure(0, weight=1)
-
-        self.printer_controls_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
-        Label(self.printer_controls_frame, text="Printer Controls", font=("Arial", 12, "bold")).pack(anchor='w')
-        self.start_auto_button.pack(fill=tk.X, pady=2)
-        self.restart_firmware_button.pack(fill=tk.X, pady=2)
-        self.auto_home_button.pack(fill=tk.X, pady=2)
-        self.z_offset_frame.pack(fill=tk.X, pady=5, expand=True)
-        self.z_offset_label.pack(pady=(2,0))
-        self.z_offset_slider_label.pack()
-        self.z_offset_slider.pack(fill=tk.X, padx=10)
-        self.z_offset_up_button.pack(fill=tk.X, padx=5, pady=(2,2))
-        self.z_offset_down_button.pack(fill=tk.X, padx=5, pady=(2,5))
-
-        self.manual_steps_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=5)
-        Label(self.manual_steps_frame, text="Manual Steps", font=("Arial", 12, "bold")).pack(anchor='w')
-        self.print_button.pack(fill=tk.X, pady=2)
-        self.capture_button.pack(fill=tk.X, pady=2)
-
-        self.classification_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=5)
-        Label(self.classification_frame, text="Classification", font=("Arial", 12, "bold")).pack(anchor='w')
-        self.classification_dropdown.pack(fill=tk.X, pady=2)
-        self.save_button.pack(fill=tk.X, pady=2)
-
-        self.processing_views_frame.grid(row=3, column=0, sticky="ew", padx=10, pady=5)
-        Label(self.processing_views_frame, text="Processing Views", font=("Arial", 12, "bold")).pack(anchor='w')
-        self.debug_mode_checkbox.pack(anchor='w')
-        self.view_buttons_frame.pack(fill=tk.X, pady=2)
-        buttons_in_frame = list(self.view_buttons.values())
-        for i, btn in enumerate(buttons_in_frame):
-            btn.grid(row=i // 2, column=i % 2, sticky='ew')
-        self.view_buttons_frame.grid_columnconfigure((0,1), weight=1)
-        self.process_final_button.pack(fill=tk.X, pady=2)
-        self.sigma_slider_label.pack(anchor='w', pady=(5,0))
-        self.sigma_slider.pack(fill=tk.X)
-
-    def _send_gcode_from_ui(self):
-        command = self.gcode_entry.get()
-        if command and self.controller:
-            self.controller.send_gcode(command)
-            self.gcode_entry.delete(0, tk.END)
-
-    def _update_z_slider_label(self, slider_val):
-        value = self.Z_OFFSET_VALUES[int(slider_val)]
-        self.z_offset_slider_label_var.set(f"Step: {value:.3f}mm")
-
-    def _get_selected_z_adjustment(self):
-        index = self.z_offset_slider_var.get()
-        return self.Z_OFFSET_VALUES[index]
-
-    def _on_z_adjust_up(self):
-        if self.controller:
-            amount = self._get_selected_z_adjustment()
-            self.controller.adjust_z(amount)
-
-    def _on_z_adjust_down(self):
-        if self.controller:
-            amount = self._get_selected_z_adjustment()
-            self.controller.adjust_z(-amount)
+    def _send_gcode(self):
+        self.controller.send_gcode(self.entry_gcode.get())
+        self.entry_gcode.delete(0, tk.END)
 
     def update_image_display(self, pil_image):
-        if pil_image is None:
-            self.image_canvas.delete("all")
-            return
-        img = pil_image
-        canvas_width = self.image_canvas.winfo_width()
-        canvas_height = self.image_canvas.winfo_height()
-        if canvas_width > 1 and canvas_height > 1:
-            img.thumbnail((canvas_width, canvas_height), Image.Resampling.LANCZOS)
-
-        self.current_display_image = ImageTk.PhotoImage(image=img)
-        self.image_canvas.create_image(canvas_width / 2, canvas_height / 2, anchor='center', image=self.current_display_image)
+        if not pil_image: return
+        w, h = self.image_canvas.winfo_width(), self.image_canvas.winfo_height()
+        if w < 10: return
+        img = pil_image.copy()
+        img.thumbnail((w, h), Image.Resampling.LANCZOS)
+        self.current_display_image = ImageTk.PhotoImage(img)
+        self.image_canvas.delete("all")
+        self.image_canvas.create_image(w//2, h//2, anchor='center', image=self.current_display_image)
 
     def update_webcam_display(self, pil_image):
-        self.current_webcam_image = ImageTk.PhotoImage(image=pil_image)
-        self.webcam_label.config(image=self.current_webcam_image)
+        if not pil_image: return
+        pil_image.thumbnail((200, 150))
+        self.current_webcam_image = ImageTk.PhotoImage(pil_image)
+        self.webcam_frame.config(image=self.current_webcam_image, width=pil_image.width, height=pil_image.height)
 
-    def update_status(self, message):
+    def update_status(self, msg):
         self.status_text.config(state=tk.NORMAL)
-        self.status_text.insert(tk.END, f"{message}\n")
+        self.status_text.insert(tk.END, f" >> {msg}\n")
         self.status_text.see(tk.END)
         self.status_text.config(state=tk.DISABLED)
-        self.update_idletasks()
 
-    def _select_prediction_file(self):
-        file_path = filedialog.askopenfilename(title="Select file for prediction")
-        if file_path:
-            self.selected_file_label.config(text=file_path)
-            self.update_selected_image(file_path)
-            if self.controller:
-                self.controller.set_prediction_file(file_path)
-
-    def update_selected_image(self, image_path):
-        try:
-            pil_image = Image.open(image_path).resize((300, 300), Image.Resampling.LANCZOS)
-            self.selected_image_tk = ImageTk.PhotoImage(pil_image)
-            self.selected_image_label.config(image=self.selected_image_tk, text="")
-        except Exception as e:
-            self.selected_image_label.config(text="Failed to load image", image="")
-
-    def reset_plot_data(self):
-        if len(self.acc_data) > 0:
-            self.acc_data = []
-            self.val_acc_data = []
-            self.loss_data = []
-            self.val_loss_data = []
-            self.ax_acc.clear()
-            self.ax_loss.clear()
-            self.classifier_plot_canvas.draw()
-
-    def update_training_plot(self, epoch, logs, message=None):
-        self.acc_data.append(logs.get('accuracy', 0))
-        self.val_acc_data.append(logs.get('val_accuracy', 0))
-        self.loss_data.append(logs.get('loss', 0))
-        self.val_loss_data.append(logs.get('val_loss', 0))
-
-        epochs_range = range(len(self.acc_data))
-
-        self.ax_acc.clear()
-        self.ax_loss.clear()
-
-        self.ax_acc.plot(epochs_range, self.acc_data, 'b-', label='Training')
-        self.ax_acc.plot(epochs_range, self.val_acc_data, 'r-', label='Validation')
-        self.ax_acc.set_title('Model Accuracy')
-        self.ax_acc.set_xlabel('Epoch')
-        self.ax_acc.set_ylabel('Accuracy')
-        self.ax_acc.set_ylim(0, 1.1)
-        self.ax_acc.legend(loc='lower right')
-        self.ax_acc.grid(True)
-
-        self.ax_loss.plot(epochs_range, self.loss_data, 'b-', label='Training')
-        self.ax_loss.plot(epochs_range, self.val_loss_data, 'r-', label='Validation')
-        self.ax_loss.set_title('Model Loss')
-        self.ax_loss.set_xlabel('Epoch')
-        self.ax_loss.set_ylabel('Loss')
-        self.ax_loss.legend(loc='upper right')
-        self.ax_loss.grid(True)
-
-        if message:
-            self.update_classifier_console(message)
-
-        self.classifier_plot_canvas.draw()
-        self.update_idletasks()
-
-    def update_classifier_console(self, message):
+    def update_classifier_console(self, msg):
         self.classifier_console.config(state=tk.NORMAL)
-        self.classifier_console.insert(tk.END, f"{message}\n")
+        self.classifier_console.insert(tk.END, f"{msg}\n")
         self.classifier_console.see(tk.END)
         self.classifier_console.config(state=tk.DISABLED)
-        self.update_idletasks()
+
+    def _select_prediction_file(self):
+        f = filedialog.askopenfilename()
+        if f: self.controller.set_prediction_file(f)
+
+    def reset_plot_data(self):
+        self.acc_data, self.val_acc_data, self.loss_data, self.val_loss_data = [], [], [], []
+        self.ax_acc.clear()
+        self.ax_loss.clear()
+        self._style_plots([self.ax_acc, self.ax_loss])
+        self.monitor_canvas.draw()
+
+    def update_training_plot(self, epoch, logs, msg):
+        self.acc_data.append(logs.get('accuracy'))
+        self.val_acc_data.append(logs.get('val_accuracy'))
+        self.loss_data.append(logs.get('loss'))
+        self.val_loss_data.append(logs.get('val_loss'))
+        
+        self.ax_acc.clear()
+        self.ax_loss.clear()
+        self._style_plots([self.ax_acc, self.ax_loss])
+
+        self.ax_acc.plot(self.acc_data, label='Train', color='#4a90e2')
+        self.ax_acc.plot(self.val_acc_data, label='Val', color='#6a8759')
+        self.ax_acc.set_title("Accuracy")
+        self.ax_acc.legend()
+        
+        self.ax_loss.plot(self.loss_data, label='Train', color='#4a90e2')
+        self.ax_loss.plot(self.val_loss_data, label='Val', color='#6a8759')
+        self.ax_loss.set_title("Loss")
+        self.ax_loss.legend()
+        
+        self.monitor_canvas.draw()
+        if msg: self.update_classifier_console(msg)
 
     def set_ui_state(self, state):
-        all_view_buttons = list(self.view_buttons.values()) + [self.process_final_button]
-        states = {
-            'print': self.print_button, 'capture': self.capture_button,
-            'save': self.save_button, 'classify': self.classification_dropdown,
-            'auto': self.start_auto_button, 'views': all_view_buttons
-        }
-
-        def configure_widgets(enabled, disabled):
-            for key in enabled:
-                widget = states[key]
-                if isinstance(widget, list):
-                    for w in widget: w.config(state=tk.NORMAL)
-                else:
-                    widget.config(state=tk.NORMAL)
-            for key in disabled:
-                widget = states[key]
-                if isinstance(widget, list):
-                    for w in widget: w.config(state=tk.DISABLED)
-                else:
-                    widget.config(state=tk.DISABLED)
-
-        if state == 'IDLE':
-            configure_widgets(enabled=['print', 'capture', 'auto', 'classify'], disabled=['save', 'views'])
-            self.start_auto_button.config(text="Start Autonomous Mode")
-        elif state == 'CAPTURED':
-            configure_widgets(enabled=['print', 'capture', 'auto', 'views', 'classify'], disabled=['save'])
-        elif state == 'PROCESSED':
-            configure_widgets(enabled=['print', 'capture', 'auto', 'views', 'save', 'classify'], disabled=[])
-        elif state == 'BUSY':
-            configure_widgets(enabled=[], disabled=['print', 'capture', 'auto', 'views', 'save', 'classify'])
-        elif state == 'AUTONOMOUS':
-            configure_widgets(enabled=['auto', 'classify'], disabled=['print', 'capture', 'views', 'save'])
-            self.start_auto_button.config(text="Stop Autonomous Mode")
-
-    @staticmethod
-    def show_error(title, message):
-        messagebox.showerror(title, message)
-
-    @staticmethod
-    def show_info(title, message):
-        messagebox.showinfo(title, message)
-
-    @staticmethod
-    def ask_ok_cancel(title, message):
-        return messagebox.askokcancel(title, message)
-
-    @staticmethod
-    def ask_accept_fallback_reject(title, message):
-        return messagebox.askyesnocancel(title, message, icon=messagebox.QUESTION)
+        pass
+    def show_error(self, t, m): messagebox.showerror(t, m)
+    def show_info(self, t, m): messagebox.showinfo(t, m)
+    def ask_ok_cancel(self, t, m): return messagebox.askokcancel(t, m)
+    def ask_accept_fallback_reject(self, t, m): return messagebox.askyesnocancel(t, m)

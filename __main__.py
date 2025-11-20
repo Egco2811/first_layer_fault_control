@@ -1,9 +1,11 @@
 from model import Model
 from view import View
 from controller import Controller
+from config import Config
 
 class App:
     def __init__(self):
+        Config.load()
         self.model = Model()
         self.view = View()
         self.controller = Controller(self.model, self.view)
