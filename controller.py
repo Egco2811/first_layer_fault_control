@@ -183,6 +183,8 @@ class Controller:
                 self.view.after(0, lambda: self.view.update_status("[Auto] Starting print..."))
                 self.model.start_print()
                 print_succeeded = False
+                
+                # Poll print status
                 for state, message in self.model.poll_print_progress():
                     if not self.autonomous_running: break
                     self.view.after(0, lambda m=message: self.view.update_status(f"[Auto] {m}"))
@@ -191,7 +193,12 @@ class Controller:
                         break
                     elif state in ["error", "cancelled"]:
                         break
+                
                 if not self.autonomous_running or not print_succeeded:
+                    if print_succeeded:
+                        self.view.after(0, lambda: self.view.update_status("[Auto] Cancelled by user."))
+                    else:
+                        self.view.after(0, lambda: self.view.update_status("[Auto] Print failed."))
                     break
                 
                 time.sleep(5)
@@ -199,14 +206,143 @@ class Controller:
                 self.model.capture_and_load_image(UNPROCESSED_IMAGE_FILE)
 
                 final_pil_image = None
+                
+                # --- START OF NESTED TRY BLOCK ---
                 try:
                     user_sigma = self.view.canny_sigma_var.get()
                     debug_mode = self.view.debug_mode_var.get()
                     final_pil_image, _, _ = self.model.run_full_pipeline_with_retry(user_sigma, debug_mode)
                 except RuntimeError:
                     self.autonomous_running = False
+                    self.view.after(0, lambda: self.view.show_error("Auto Error", "Failed to find shape in image."))
                     break
 
                 self.view.after(0, lambda: self.view.update_image_display(final_pil_image))
                 self.model.save_temp_image(TEMP_IMAGE_FILE)
                 self.model.send_telegram_notification(TEMP_IMAGE_FILE, caption="[Auto] Please review.")
+
+                acceptance = self.view.ask_accept_fallback_reject("Review", "Accept image?")
+                if acceptance is True:
+                    cls = self.view.classification_var.get()
+                    self.model.save_image(cls)
+                    self.model.commit_last_found_corners()
+                elif acceptance is False:
+                    self.model.crop_with_fallback()
+                    cls = self.view.classification_var.get()
+                    self.model.save_image(cls)
+
+                if os.path.exists(TEMP_IMAGE_FILE):
+                    os.remove(TEMP_IMAGE_FILE)
+
+                self.view.after(0, lambda: self.view.update_status("[Auto] Clean build plate."))
+                if not self.view.ask_ok_cancel("Autonomous", "Press OK to continue."):
+                    self.autonomous_running = False
+
+            except Exception as e:
+                self.view.after(0, lambda: self.view.show_error("Autonomous Error", str(e)))
+                self.autonomous_running = False
+
+        self.autonomous_running = False
+        self.view.after(0, lambda: self.view.set_ui_state('IDLE'))
+
+    def adjust_z(self, amount):
+        self._run_task(self.model.adjust_z_offset, amount)
+
+    def restart_firmware(self):
+        if self.view.ask_ok_cancel("Confirm", "Restart printer firmware?"):
+            self._run_task(self.model.restart_firmware)
+
+    def auto_home(self):
+        self._run_task(self.model.auto_home)
+
+    def send_gcode(self, command):
+        if command:
+            self._run_task(self.model.send_gcode, command)
+
+    def start_webcam_stream(self):
+        if not self.webcam_running:
+            self.webcam_running = True
+            threading.Thread(target=self._webcam_loop, daemon=True).start()
+
+    def stop_webcam_stream(self):
+        self.webcam_running = False
+
+    def _webcam_loop(self):
+        stream_url = self.model.get_webcam_stream_url()
+        
+        with StderrSuppressor():
+            cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
+            while self.webcam_running:
+                ret, frame = cap.read()
+                if ret:
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    pil_image = Image.fromarray(frame_rgb)
+                    self.view.after(0, lambda: self.view.update_webcam_display(pil_image))
+                else:
+                    time.sleep(2)
+                    cap.release()
+                    cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
+            cap.release()
+
+    def set_prediction_file(self, file_path):
+        self.prediction_file_path = file_path
+        self.view.update_classifier_console(f"Selected: {file_path}")
+
+    def predict_selected_file(self):
+        if not hasattr(self, "prediction_file_path") or not self.prediction_file_path:
+            return
+        self._run_task(self._predict_task, self.prediction_file_path)
+
+    def _predict_task(self, image_path):
+        self.view.after(0, lambda: self.view.update_classifier_console("Running prediction..."))
+        try:
+            cls, conf = self.predictor.predict(image_path)
+            msg = f"Prediction: '{cls}' ({conf:.2f}%)"
+            self.view.after(0, lambda: self.view.update_classifier_console(msg))
+        except Exception as e:
+            self.view.after(0, lambda: self.view.update_classifier_console(f"Failed: {e}"))
+
+    def start_network_training(self):
+        try:
+            epochs = self.view.epochs_var.get()
+            batch_size = self.view.batch_size_var.get()
+            lr = self.view.lr_var.get()
+        except:
+            self.view.show_error("Input Error", "Invalid training parameters.")
+            return
+        
+        self.view.reset_plot_data()
+        self._stop_training_flag.clear()
+        self.view.btn_stop_train.config(state='normal')
+        self.view.btn_train.config(state='disabled')
+        
+        def plot_callback(epoch, logs, message=None):
+            self.view.after(0, self.view.update_training_plot, epoch, logs, message)
+        
+        def stop_callback():
+            return self._stop_training_flag.is_set()
+
+        def training_task():
+            try:
+                model, test_ds, classes = train_model(epochs, batch_size, lr, plot_callback, stop_callback)
+                
+                self.view.after(0, lambda: self.view.update_classifier_console("Generating Confusion Matrix..."))
+                cm, acc, loss = generate_confusion_matrix_data(model, test_ds)
+                self.view.after(0, lambda: self.view.show_analysis_results(cm, classes, acc, loss))
+                
+                self.view.after(0, lambda: self.view.update_classifier_console("Reloading resources..."))
+                self.predictor.reload()
+                
+                self.view.after(0, self.view.update_classifier_console, f"Done. Test Acc: {acc*100:.2f}%")
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self.view.after(0, self.view.update_classifier_console, f"Error: {e}")
+            finally:
+                self.view.after(0, lambda: self.view.btn_stop_train.config(state='disabled'))
+                self.view.after(0, lambda: self.view.btn_train.config(state='normal'))
+
+        threading.Thread(target=training_task, daemon=True).start()
+
+    def stop_network_training(self):
+        self._stop_training_flag.set()
