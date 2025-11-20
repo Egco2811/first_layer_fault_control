@@ -20,7 +20,12 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
     early_stopping = EarlyStopping(monitor='val_loss', patience=15, restore_best_weights=True)
     reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=1e-7)
 
+
     all_image_paths = list(data_dir.glob('*/*.jpg'))
+    
+
+    all_image_paths = [str(path) for path in all_image_paths]
+
     class_names = sorted([item.name for item in data_dir.glob('*') if item.is_dir()])
     
     with open(classes_save_path, 'w') as f:
@@ -37,12 +42,15 @@ def train_model(epochs=200, batch_size=8, learning_rate=1e-5, plot_callback=None
         val_test_paths, val_test_labels, test_size=0.5, random_state=123, stratify=val_test_labels)
 
     def create_dataset(paths, labels):
+
         path_ds = tf.data.Dataset.from_tensor_slices(paths)
+        
         def load_and_preprocess_image(path):
             image = tf.io.read_file(path)
             image = tf.image.decode_jpeg(image, channels=3)
             image = tf.image.resize(image, [img_height, img_width])
             return image
+
         image_ds = path_ds.map(load_and_preprocess_image, num_parallel_calls=tf.data.AUTOTUNE)
         label_ds = tf.data.Dataset.from_tensor_slices(tf.keras.utils.to_categorical(labels, num_classes=len(class_names)))
         return tf.data.Dataset.zip((image_ds, label_ds))
