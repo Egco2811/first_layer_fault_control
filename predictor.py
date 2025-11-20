@@ -16,7 +16,7 @@ class Predictor:
         self._load_resources()
 
     def _load_resources(self):
-        # Reset state before loading
+
         self.model = None
         self.class_names = []
 
