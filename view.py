@@ -181,7 +181,7 @@ class View(tk.Tk):
         self.btn_send_gcode.pack(fill=tk.X)
 
     def _create_classification_ui(self):
-        # Sub-tabs for Training Monitor vs Analysis
+
         self.class_notebook = ttk.Notebook(self.tab_classification)
         self.class_notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
@@ -191,9 +191,9 @@ class View(tk.Tk):
         self.class_notebook.add(self.tab_monitor, text=" Monitor ")
         self.class_notebook.add(self.tab_analysis, text=" Analysis ")
         
-        # --- Monitor Tab ---
+
         self._build_monitor_tab(self.tab_monitor)
-        # --- Analysis Tab ---
+
         self._build_analysis_tab(self.tab_analysis)
 
     def _build_monitor_tab(self, parent):
@@ -240,7 +240,7 @@ class View(tk.Tk):
         self.classifier_console.pack(fill=tk.X, padx=5, pady=5)
 
     def _build_analysis_tab(self, parent):
-        # Top: Summary Metrics
+
         f_summary = ttk.Frame(parent)
         f_summary.pack(fill=tk.X, pady=10)
         
@@ -250,11 +250,11 @@ class View(tk.Tk):
         self.lbl_test_loss = ttk.Label(f_summary, text="Test Loss: N/A", font=("Segoe UI", 12))
         self.lbl_test_loss.pack(side=tk.LEFT, padx=20)
 
-        # Bottom: Confusion Matrix
+
         self.cm_fig = Figure(figsize=(6, 5), dpi=100, facecolor=self.COLORS['bg_dark'])
         self.ax_cm = self.cm_fig.add_subplot(111)
         self.ax_cm.set_facecolor(self.COLORS['bg_dark'])
-        self.ax_cm.axis('off') # Hide axis until data is plotted
+        self.ax_cm.axis('off')
         
         self.cm_canvas = FigureCanvasTkAgg(self.cm_fig, master=parent)
         self.cm_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -270,11 +270,11 @@ class View(tk.Tk):
                 spine.set_color('#555555')
 
     def show_analysis_results(self, cm, classes, acc, loss):
-        # Update Metrics
+
         self.lbl_test_acc.config(text=f"Test Accuracy: {acc*100:.2f}%")
         self.lbl_test_loss.config(text=f"Test Loss: {loss:.4f}")
         
-        # Plot Confusion Matrix
+
         self.ax_cm.clear()
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=self.ax_cm, 
                     xticklabels=classes, yticklabels=classes)
@@ -283,11 +283,11 @@ class View(tk.Tk):
         self.ax_cm.set_ylabel('True', color='white')
         self.ax_cm.tick_params(colors='white')
         
-        # Adjust heatmap text color for dark theme compatibility if needed
-        # (Seaborn usually handles contrast, but axis labels need help)
+
+
         
         self.cm_canvas.draw()
-        # Switch to Analysis tab
+
         self.class_notebook.select(self.tab_analysis)
 
     def _update_z_label(self, val):

@@ -1,17 +1,32 @@
 import threading
 import time
 import os
+import sys
 import cv2
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import redirect_stderr
-
 from predictor import Predictor
 from classifier import train_model, generate_confusion_matrix_data
 from config import Config
 
 UNPROCESSED_IMAGE_FILE = "unprocessed.jpg"
 TEMP_IMAGE_FILE = "temp_autonomous_capture.jpg"
+
+class StderrSuppressor:
+    def __init__(self):
+        self._original_stderr_fd = None
+        self._devnull_fd = None
+
+    def __enter__(self):
+        sys.stderr.flush()
+        self._original_stderr_fd = os.dup(2)
+        self._devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(self._devnull_fd, 2)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        os.dup2(self._original_stderr_fd, 2)
+        os.close(self._devnull_fd)
+        os.close(self._original_stderr_fd)
 
 class Controller:
     def __init__(self, model, view):
@@ -229,22 +244,21 @@ class Controller:
         self.webcam_running = False
 
     def _webcam_loop(self):
-        os.environ['OPENCV_FFMPEG_LOGLEVEL'] = '0'
         stream_url = self.model.get_webcam_stream_url()
-        with open(os.devnull, 'w') as devnull:
-            with redirect_stderr(devnull):
-                cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
-                while self.webcam_running:
-                    ret, frame = cap.read()
-                    if ret:
-                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        pil_image = Image.fromarray(frame_rgb)
-                        self.view.after(0, lambda: self.view.update_webcam_display(pil_image))
-                    else:
-                        time.sleep(2)
-                        cap.release()
-                        cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
-                cap.release()
+        
+        with SuppressStderr():
+            cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
+            while self.webcam_running:
+                ret, frame = cap.read()
+                if ret:
+                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    pil_image = Image.fromarray(frame_rgb)
+                    self.view.after(0, lambda: self.view.update_webcam_display(pil_image))
+                else:
+                    time.sleep(2)
+                    cap.release()
+                    cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
+            cap.release()
 
     def set_prediction_file(self, file_path):
         self.prediction_file_path = file_path
@@ -286,15 +300,12 @@ class Controller:
 
         def training_task():
             try:
-                # 1. Train
                 model, test_ds, classes = train_model(epochs, batch_size, lr, plot_callback, stop_callback)
                 
-                # 2. Analyze Results
                 self.view.after(0, lambda: self.view.update_classifier_console("Generating Confusion Matrix..."))
                 cm, acc, loss = generate_confusion_matrix_data(model, test_ds)
                 self.view.after(0, lambda: self.view.show_analysis_results(cm, classes, acc, loss))
                 
-                # 3. Reload Predictor
                 self.view.after(0, lambda: self.view.update_classifier_console("Reloading resources..."))
                 self.predictor.reload()
                 

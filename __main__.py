@@ -1,3 +1,9 @@
+import os
+
+os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
+os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "0"
+os.environ["OPENCV_VIDEOIO_DEBUG"] = "0"
+
 from model import Model
 from view import View
 from controller import Controller
