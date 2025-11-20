@@ -67,3 +67,23 @@ def restart_firmware(moonraker_url):
 
 def auto_home(moonraker_url):
     send_gcode(moonraker_url, "G28")
+
+def wait_for_klipper_ready(moonraker_url, timeout=60):
+    url = f"{moonraker_url}/server/info"
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            response = requests.get(url, timeout=2)
+            if response.status_code == 200:
+                state = response.json().get("result", {}).get("klippy_state")
+                if state == "ready":
+                    return True
+        except Exception:
+            pass
+        time.sleep(2)
+    return False
+
+def force_stillness(moonraker_url):
+    send_gcode(moonraker_url, "M400")
+    send_gcode(moonraker_url, "G4 P1000")
+    time.sleep(1.5)

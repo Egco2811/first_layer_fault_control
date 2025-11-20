@@ -213,9 +213,17 @@ class Controller:
                     if error_occurred and self.autonomous_running:
                         self.view.after(0, lambda: self.view.update_status("[Auto] Print Error. Restarting Firmware..."))
                         self.model.restart_firmware()
-                        time.sleep(10)
+                        
+                        self.view.after(0, lambda: self.view.update_status("[Auto] Waiting for printer readiness..."))
+                        if not self.model.wait_for_ready():
+                            self.view.after(0, lambda: self.view.update_status("[Auto] Printer reconnect timed out."))
+                            break
+                            
                         self.view.after(0, lambda: self.view.update_status("[Auto] Homing..."))
                         self.model.auto_home()
+                        
+                        self.view.after(0, lambda: self.view.update_status("[Auto] Waiting for moves to complete..."))
+                        self.model.force_still()
                         retries += 1
                     else:
                         break
@@ -224,7 +232,6 @@ class Controller:
                     self.view.after(0, lambda: self.view.update_status("[Auto] Failed to complete print after retries."))
                     break
 
-                time.sleep(2)
                 self.view.after(0, lambda: self.view.update_status("[Auto] Capturing image..."))
                 self.model.capture_and_load_image(UNPROCESSED_IMAGE_FILE)
                 

@@ -5,7 +5,8 @@ import json
 from PIL import Image
 from config import Config
 from moonraker_interface import (start_print, poll_print_status, capture_image, cancel_print,
-                                 adjust_z_offset, restart_firmware, auto_home, send_gcode, apply_and_save_config)
+                                 adjust_z_offset, restart_firmware, auto_home, send_gcode, 
+                                 apply_and_save_config, wait_for_klipper_ready, force_stillness)
 from preprocess_image import find_target_contour, crop_from_contour, auto_canny
 from file_handler import send_telegram_image
 
@@ -64,6 +65,7 @@ class Model:
         cancel_print(Config.PRINTER_URL)
 
     def capture_and_load_image(self, path):
+        force_stillness(Config.PRINTER_URL)
         if capture_image(Config.PRINTER_URL, path):
             self.original_image = cv2.imread(path)
             if self.original_image is None:
@@ -174,3 +176,5 @@ class Model:
     def auto_home(self): auto_home(Config.PRINTER_URL)
     def send_gcode(self, cmd): send_gcode(Config.PRINTER_URL, cmd)
     def get_webcam_stream_url(self): return Config.get_webcam_url()
+    def wait_for_ready(self): return wait_for_klipper_ready(Config.PRINTER_URL)
+    def force_still(self): force_stillness(Config.PRINTER_URL)
