@@ -102,7 +102,7 @@ class Controller:
             print(f"Capture Error: {e}")
             self.view.after(0, lambda: self.view.set_ui_state('IDLE'))
             self.view.after(0, lambda: self.view.update_status(f"Capture failed: {e}"))
-            
+
     def view_step(self, step_name):
         self._run_task(self._view_step_task, step_name)
 
@@ -456,7 +456,6 @@ class Controller:
         stream_url = self.model.get_webcam_stream_url()
         with StderrSuppressor():
             cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             while self.webcam_running:
                 ret, frame = cap.read()
                 if ret:
@@ -464,7 +463,6 @@ class Controller:
                     pil_image = Image.fromarray(frame_rgb)
                     self.view.after(0, lambda: self.view.update_webcam_display(pil_image))
                 else:
-                    time.sleep(2)
                     cap.release()
                     cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
             cap.release()
