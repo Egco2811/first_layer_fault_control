@@ -358,6 +358,74 @@ class Controller:
         self.view.after(0, lambda: self.view.set_ui_state('IDLE'))
         self.view.after(0, lambda: self.view.update_status("[Auto] Stopped."))
 
+    def toggle_data_collection(self):
+        if not hasattr(self, 'collecting_data'): self.collecting_data = False
+        
+        if not self.collecting_data:
+            self.collecting_data = True
+            self.view.update_status("Starting Automated Data Collection...")
+            threading.Thread(target=self.data_collection_loop, daemon=True).start()
+        else:
+            self.collecting_data = False
+            self.view.update_status("Stopping data collection after current cycle.")
+
+    def data_collection_loop(self):
+        while self.collecting_data:
+            try:
+                self.view.after(0, lambda: self.view.update_status("[Collect] Waiting for printer ready..."))
+                if not self.model.wait_for_ready():
+                    self.view.after(0, lambda: self.view.show_error("Error", "Printer not ready."))
+                    break
+
+                self.view.after(0, lambda: self.view.update_status("[Collect] Printing shape..."))
+                self.model.start_print()
+                
+                print_success = False
+                for state, message in self.model.poll_print_progress():
+                    if not self.collecting_data: break
+                    self.view.after(0, lambda m=message: self.view.update_status(f"[Collect] {m}"))
+                    if state == "complete":
+                        print_success = True
+                        break
+                    elif state in ["error", "cancelled"]:
+                        break
+                
+                if not print_success:
+                    self.view.after(0, lambda: self.view.update_status("[Collect] Print failed. Stopping loop."))
+                    break
+
+                self.view.after(0, lambda: self.view.update_status("[Collect] Capturing & Processing..."))
+                self.model.capture_and_load_image(UNPROCESSED_IMAGE_FILE)
+                
+                sigma = self.view.canny_sigma_var.get()
+                final_pil, _, _ = self.model.run_full_pipeline_with_retry(sigma)
+                self.view.after(0, lambda: self.view.update_image_display(final_pil))
+
+                user_choice = self.view.ask_prediction_confirmation(
+                    "Data Collection",
+                    "Image processed. Is this satisfactory? Select folder to save:",
+                    "ideal",
+                    ["high", "ideal", "low"]
+                )
+
+                if user_choice:
+                    save_path = self.model.save_image(user_choice)
+                    self.model.commit_last_found_corners()
+                    self.view.after(0, lambda p=save_path: self.view.update_status(f"Saved to {p}"))
+                else:
+                    self.view.after(0, lambda: self.view.update_status("Image discarded."))
+
+                if self.collecting_data:
+                    if not self.view.ask_ok_cancel("Next Step", "Please CLEAR the build plate.\n\nPress OK to start the next print, or Cancel to stop."):
+                        break
+
+            except Exception as e:
+                self.view.after(0, lambda: self.view.show_error("Collection Error", str(e)))
+                break
+
+        self.collecting_data = False
+        self.view.after(0, lambda: self.view.update_status("Data collection stopped."))
+
     def adjust_z(self, amount):
         self._run_task(self.model.adjust_z_offset, amount)
 
@@ -384,6 +452,7 @@ class Controller:
         stream_url = self.model.get_webcam_stream_url()
         with StderrSuppressor():
             cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             while self.webcam_running:
                 ret, frame = cap.read()
                 if ret:

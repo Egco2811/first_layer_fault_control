@@ -21,7 +21,10 @@ class View(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("3D Print Data Collector & Classifier")
-        self.state('zoomed')
+        try:
+            self.attributes('-zoomed', True) 
+        except tk.TclError:
+            self.state('normal') 
         self.configure(bg=self.COLORS['bg_dark'])
         self.controller = None
         
@@ -43,10 +46,10 @@ class View(tk.Tk):
         style = ttk.Style(self)
         style.theme_use('clam')
         style.configure("TFrame", background=self.COLORS['bg_dark'])
-        style.configure("TLabel", background=self.COLORS['bg_dark'], foreground=self.COLORS['fg_text'], font=("Segoe UI", 10))
+        style.configure("TLabel", background=self.COLORS['bg_dark'], foreground=self.COLORS['fg_text'], font=("Cantarell", 10))
         style.configure("TButton", background=self.COLORS['bg_light'], foreground=self.COLORS['fg_text'], borderwidth=1)
         style.map("TButton", background=[('active', self.COLORS['accent']), ('disabled', self.COLORS['bg_dark'])])
-        style.configure("Action.TButton", background=self.COLORS['accent'], font=("Segoe UI", 10, "bold"))
+        style.configure("Action.TButton", background=self.COLORS['accent'], font=("Cantarell", 10, "bold"))
         style.configure("Danger.TButton", background=self.COLORS['danger'])
         style.configure("TLabelframe", background=self.COLORS['bg_dark'], bordercolor=self.COLORS['bg_light'])
         style.configure("TLabelframe.Label", background=self.COLORS['bg_dark'], foreground=self.COLORS['accent'])
@@ -59,6 +62,7 @@ class View(tk.Tk):
     def set_controller(self, controller):
         self.controller = controller
         self.btn_auto.config(command=self.controller.toggle_autonomous_mode)
+        self.btn_collect_data.config(command=self.controller.toggle_data_collection)
         self.btn_restart.config(command=self.controller.restart_firmware)
         self.btn_home.config(command=self.controller.auto_home)
         self.btn_z_up.config(command=lambda: self.controller.adjust_z(self.Z_OFFSET_VALUES[self.z_slider_var.get()]))
@@ -110,6 +114,8 @@ class View(tk.Tk):
         lf.pack(fill=tk.X, pady=5)
         self.btn_auto = ttk.Button(lf, text="🚀 Start Autonomous", style="Action.TButton")
         self.btn_auto.pack(fill=tk.X, padx=5, pady=5)
+        self.btn_collect_data = ttk.Button(lf, text="📊 Auto Data Collect", style="Action.TButton")
+        self.btn_collect_data.pack(fill=tk.X, padx=5, pady=2)
         self.btn_home = ttk.Button(lf, text="🏠 Home All Axes")
         self.btn_home.pack(fill=tk.X, padx=5, pady=2)
         self.btn_restart = ttk.Button(lf, text="🔄 Restart Firmware", style="Danger.TButton")
@@ -234,9 +240,9 @@ class View(tk.Tk):
     def _build_analysis_tab(self, parent):
         f_summary = ttk.Frame(parent)
         f_summary.pack(fill=tk.X, pady=10)
-        self.lbl_test_acc = ttk.Label(f_summary, text="Test Accuracy: N/A", font=("Segoe UI", 16, "bold"), foreground=self.COLORS['accent'])
+        self.lbl_test_acc = ttk.Label(f_summary, text="Test Accuracy: N/A", font=("Cantarell", 16, "bold"), foreground=self.COLORS['accent'])
         self.lbl_test_acc.pack(side=tk.LEFT, padx=20)
-        self.lbl_test_loss = ttk.Label(f_summary, text="Test Loss: N/A", font=("Segoe UI", 12))
+        self.lbl_test_loss = ttk.Label(f_summary, text="Test Loss: N/A", font=("Cantarell", 12))
         self.lbl_test_loss.pack(side=tk.LEFT, padx=20)
         self.cm_fig = Figure(figsize=(6, 5), dpi=100, facecolor=self.COLORS['bg_dark'])
         self.ax_cm = self.cm_fig.add_subplot(111)
@@ -338,13 +344,13 @@ class View(tk.Tk):
     def set_ui_state(self, state):
         
         view_btns = list(self.view_buttons.values())
-        main_controls = [self.btn_print, self.btn_capture, self.btn_auto, self.btn_pipeline, self.btn_save, self.classification_dropdown, self.btn_predict_current]
+        main_controls = [self.btn_print, self.btn_capture, self.btn_auto, self.btn_collect_data, self.btn_pipeline, self.btn_save, self.classification_dropdown, self.btn_predict_current]        
         all_btns = main_controls + view_btns
         
         disabled_all = ['disabled'] * len(all_btns)
         
         if state == 'IDLE':
-            states = ['normal', 'normal', 'normal', 'disabled', 'disabled', 'normal', 'disabled'] + ['disabled'] * len(view_btns)
+            states = ['normal', 'normal', 'normal', 'normal', 'disabled', 'disabled', 'normal', 'disabled'] + ['disabled'] * len(view_btns)
             auto_text = "🚀 Start Autonomous"
             
         elif state == 'CAPTURED':
@@ -382,7 +388,7 @@ class View(tk.Tk):
         dialog.configure(bg=self.COLORS['bg_dark'])
         dialog.grab_set()
         
-        tk.Label(dialog, text=message, wraplength=350, bg=self.COLORS['bg_dark'], fg='white', font=("Segoe UI", 11)).pack(pady=15)
+        tk.Label(dialog, text=message, wraplength=350, bg=self.COLORS['bg_dark'], fg='white', font=("Cantarell", 11)).pack(pady=15)
         
         result = [None]
         
@@ -391,15 +397,15 @@ class View(tk.Tk):
             dialog.destroy()
             
         tk.Button(dialog, text=f"Confirm {predicted.upper()}", command=lambda: set_res(predicted), 
-                  bg=self.COLORS['success'], fg='white', font=("Segoe UI", 10, "bold"), bd=1, relief="flat").pack(fill=tk.X, padx=30, pady=5)
+                  bg=self.COLORS['success'], fg='white', font=("Cantarell", 10, "bold"), bd=1, relief="flat").pack(fill=tk.X, padx=30, pady=5)
         
         for opt in options:
             if opt != predicted:
                 tk.Button(dialog, text=f"Force {opt.upper()}", command=lambda o=opt: set_res(o), 
-                          bg=self.COLORS['accent'], fg='white', font=("Segoe UI", 9), bd=1, relief="flat").pack(fill=tk.X, padx=30, pady=2)
+                          bg=self.COLORS['accent'], fg='white', font=("Cantarell", 9), bd=1, relief="flat").pack(fill=tk.X, padx=30, pady=2)
                 
         tk.Button(dialog, text="Cancel", command=lambda: set_res(None), 
-                  bg=self.COLORS['danger'], fg='white', font=("Segoe UI", 9), bd=1, relief="flat").pack(fill=tk.X, padx=30, pady=15)
+                  bg=self.COLORS['danger'], fg='white', font=("Cantarell", 9), bd=1, relief="flat").pack(fill=tk.X, padx=30, pady=15)
         
         self.wait_window(dialog)
         return result[0]

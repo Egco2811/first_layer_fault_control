@@ -52,10 +52,13 @@ def poll_print_status(moonraker_url, interval=5):
 def send_gcode(moonraker_url, command):
     url = f"{moonraker_url}/printer/gcode/script"
     try:
-        requests.post(url, params={'script': command}, timeout=5)
-        return True
-    except Exception:
+        requests.post(url, json={'script': command}, timeout=5)
+        return True  
+    except Exception as e:
+        print(f"DEBUG: Connection error to {url}: {e}")
         return False
+
+  
 
 def start_print(moonraker_url, filename):
     url = f"{moonraker_url}/printer/print/start"
