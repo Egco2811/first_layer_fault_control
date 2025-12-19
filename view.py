@@ -354,11 +354,11 @@ class View(tk.Tk):
             auto_text = "🚀 Start Autonomous"
             
         elif state == 'CAPTURED':
-            states = ['normal', 'normal', 'normal', 'normal', 'disabled', 'normal', 'normal'] + ['normal'] * len(view_btns)
+            states = ['normal', 'normal', 'normal', 'normal', 'normal', 'disabled', 'normal', 'normal'] + ['normal'] * len(view_btns)
             auto_text = "🚀 Start Autonomous"
             
         elif state == 'PROCESSED':
-            states = ['normal', 'normal', 'normal', 'normal', 'normal', 'normal', 'normal'] + ['normal'] * len(view_btns)
+            states = ['normal', 'normal', 'normal', 'normal', 'normal', 'normal', 'normal', 'normal'] + ['normal'] * len(view_btns)
             auto_text = "🚀 Start Autonomous"
             
         elif state == 'BUSY':
@@ -366,7 +366,7 @@ class View(tk.Tk):
             auto_text = "⏳ Working..."
             
         elif state == 'AUTONOMOUS':
-            states = ['disabled', 'disabled', 'normal', 'disabled', 'disabled', 'disabled', 'disabled'] + ['disabled'] * len(view_btns)
+            states = ['disabled', 'disabled', 'normal', 'disabled', 'disabled', 'disabled', 'disabled', 'disabled'] + ['disabled'] * len(view_btns)
             auto_text = "🛑 Stop Auto"
         else:
             states = disabled_all

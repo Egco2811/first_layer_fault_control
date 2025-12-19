@@ -92,13 +92,17 @@ class Controller:
         self.view.after(0, lambda: self.view.update_status("Capturing image..."))
         try:
             image = self.model.capture_and_load_image(UNPROCESSED_IMAGE_FILE)
+            
             self.view.after(0, lambda: self.view.update_image_display(image))
-            self.view.after(0, lambda: self.view.update_status("Image captured. Ready to process."))
-            self.view.after(0, lambda: self.view.set_ui_state('CAPTURED'))
+            
+            self.view.after(0, lambda: self.view.update_status("Captured. Unlocking Pipeline..."))
+            self.view.after(0, lambda: self.view.set_ui_state('CAPTURED')) 
+            
         except Exception as e:
+            print(f"Capture Error: {e}")
             self.view.after(0, lambda: self.view.set_ui_state('IDLE'))
-            raise e
-
+            self.view.after(0, lambda: self.view.update_status(f"Capture failed: {e}"))
+            
     def view_step(self, step_name):
         self._run_task(self._view_step_task, step_name)
 
