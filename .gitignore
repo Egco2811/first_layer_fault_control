@@ -189,3 +189,6 @@ cython_debug/
 *.exe
 *.h5
 *.keras
+
+# Results folder
+/results
